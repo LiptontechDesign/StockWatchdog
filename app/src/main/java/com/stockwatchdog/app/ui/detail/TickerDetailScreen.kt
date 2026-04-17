@@ -1,9 +1,6 @@
 package com.stockwatchdog.app.ui.detail
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +45,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -69,9 +68,8 @@ import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.components.formatSignedChange
 import com.stockwatchdog.app.ui.components.formatSignedPercent
 import com.stockwatchdog.app.ui.components.formatVolume
-import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TickerDetailScreen(
     container: AppContainer,
@@ -136,14 +134,14 @@ fun TickerDetailScreen(
             )
         }
     ) { padding ->
-        val pagerState = rememberPagerState(pageCount = { 2 })
-        val scope = rememberCoroutineScope()
+        var selectedTab by rememberSaveable { mutableIntStateOf(0) }
         val tabTitles = listOf("Position", "Alerts")
 
         Column(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
         ) {
             // Fixed hero: price, range, chart, stats
             Column(Modifier.padding(horizontal = 16.dp)) {
@@ -162,45 +160,35 @@ fun TickerDetailScreen(
                 Spacer(Modifier.height(12.dp))
             }
 
-            TabRow(selectedTabIndex = pagerState.currentPage) {
+            TabRow(selectedTabIndex = selectedTab) {
                 tabTitles.forEachIndexed { index, title ->
                     val label = if (index == 1 && alerts.isNotEmpty())
                         "$title \u00B7 ${alerts.size}"
                     else title
                     Tab(
-                        selected = pagerState.currentPage == index,
-                        onClick = {
-                            scope.launch { pagerState.animateScrollToPage(index) }
-                        },
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
                         text = { Text(label) }
                     )
                 }
             }
 
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f)
-            ) { page ->
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    when (page) {
-                        0 -> PositionSection(
-                            state = state,
-                            onEdit = { vm.openEditPosition() }
-                        )
-                        1 -> AlertsSection(
-                            alerts = alerts,
-                            onCreate = { vm.openCreateAlert() },
-                            onToggle = vm::toggleAlert,
-                            onDelete = vm::deleteAlert
-                        )
-                    }
-                    Spacer(Modifier.height(24.dp))
+            Column(
+                Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                when (selectedTab) {
+                    0 -> PositionSection(
+                        state = state,
+                        onEdit = { vm.openEditPosition() }
+                    )
+                    1 -> AlertsSection(
+                        alerts = alerts,
+                        onCreate = { vm.openCreateAlert() },
+                        onToggle = vm::toggleAlert,
+                        onDelete = vm::deleteAlert
+                    )
                 }
+                Spacer(Modifier.height(24.dp))
             }
         }
     }
