@@ -1,5 +1,6 @@
 package com.stockwatchdog.app.ui.detail
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -70,7 +71,7 @@ import com.stockwatchdog.app.ui.components.formatSignedPercent
 import com.stockwatchdog.app.ui.components.formatVolume
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun TickerDetailScreen(
     container: AppContainer,
