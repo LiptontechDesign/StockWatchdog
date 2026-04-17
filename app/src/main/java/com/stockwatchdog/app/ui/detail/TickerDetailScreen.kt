@@ -338,6 +338,11 @@ private fun AlertsSection(
             Text("Alerts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             OutlinedButton(onClick = onCreate) { Text("New alert") }
         }
+        Text(
+            "Price above / below • % day • Gain or Loss vs entry",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(6.dp))
         if (alerts.isEmpty()) {
             Text(
@@ -398,11 +403,13 @@ private fun PositionSection(
     )
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(14.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -421,8 +428,7 @@ private fun PositionSection(
             if (state.entryPrice == null) {
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "Track how this ticker is doing vs your entry price. " +
-                        "Optional — add a quantity too for $ P&L.",
+                    "Add your entry price to see P&L and unlock Gain/Loss vs entry alerts.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
