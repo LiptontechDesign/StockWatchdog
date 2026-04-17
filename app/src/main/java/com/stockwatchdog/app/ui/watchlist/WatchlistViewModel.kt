@@ -87,8 +87,12 @@ class WatchlistViewModel(
             // Sequential to respect rate limits on free tiers.
             for (sym in symbols) {
                 when (val r = repo.getQuote(sym, forceRefresh = force)) {
-                    is DataResult.Success -> results[sym] = WatchRow(sym, r.value.name, r.value)
-                    is DataResult.Error -> results[sym] = WatchRow(sym, null, null, r.message)
+                    is DataResult.Success -> results[sym] = WatchRow(
+                        symbol = sym, name = r.value.name, quote = r.value
+                    )
+                    is DataResult.Error -> results[sym] = WatchRow(
+                        symbol = sym, name = null, quote = null, error = r.message
+                    )
                 }
                 quoteCache.update { it + results }
             }
