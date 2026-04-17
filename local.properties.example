@@ -1,0 +1,10 @@
+# Copy this file to local.properties and fill in real values.
+# local.properties is gitignored, so keys never reach GitHub.
+
+# Android SDK location (Android Studio usually sets this automatically)
+# sdk.dir=C:\\Users\\YOURUSER\\AppData\\Local\\Android\\Sdk
+
+# Optional: pre-seed API keys into the app on install.
+# You can also enter/change these later in the in-app Settings screen.
+TWELVE_DATA_API_KEY=
+ALPHA_VANTAGE_API_KEY=
