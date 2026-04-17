@@ -1,6 +1,8 @@
 package com.stockwatchdog.app.ui.detail
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -38,11 +40,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +68,7 @@ import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.components.formatSignedChange
 import com.stockwatchdog.app.ui.components.formatSignedPercent
 import com.stockwatchdog.app.ui.components.formatVolume
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,40 +135,72 @@ fun TickerDetailScreen(
             )
         }
     ) { padding ->
+        val pagerState = rememberPagerState(pageCount = { 2 })
+        val scope = rememberCoroutineScope()
+        val tabTitles = listOf("Position", "Alerts")
+
         Column(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
         ) {
-            PriceHeader(state)
-            Spacer(Modifier.height(8.dp))
+            // Fixed hero: price, range, chart, stats
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                PriceHeader(state)
+                Spacer(Modifier.height(8.dp))
 
-            RangeSelector(
-                selected = state.range,
-                onSelect = { vm.selectRange(it) }
-            )
+                RangeSelector(
+                    selected = state.range,
+                    onSelect = { vm.selectRange(it) }
+                )
 
-            Spacer(Modifier.height(12.dp))
-            ChartArea(state)
-            Spacer(Modifier.height(16.dp))
-            SummaryGrid(state)
-            Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
+                ChartArea(state)
+                Spacer(Modifier.height(16.dp))
+                SummaryGrid(state)
+                Spacer(Modifier.height(12.dp))
+            }
 
-            PositionSection(
-                state = state,
-                onEdit = { vm.openEditPosition() }
-            )
-            Spacer(Modifier.height(16.dp))
+            TabRow(selectedTabIndex = pagerState.currentPage) {
+                tabTitles.forEachIndexed { index, title ->
+                    val label = if (index == 1 && alerts.isNotEmpty())
+                        "$title \u00B7 ${alerts.size}"
+                    else title
+                    Tab(
+                        selected = pagerState.currentPage == index,
+                        onClick = {
+                            scope.launch { pagerState.animateScrollToPage(index) }
+                        },
+                        text = { Text(label) }
+                    )
+                }
+            }
 
-            AlertsSection(
-                alerts = alerts,
-                onCreate = { vm.openCreateAlert() },
-                onToggle = vm::toggleAlert,
-                onDelete = vm::deleteAlert
-            )
-            Spacer(Modifier.height(24.dp))
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f)
+            ) { page ->
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    when (page) {
+                        0 -> PositionSection(
+                            state = state,
+                            onEdit = { vm.openEditPosition() }
+                        )
+                        1 -> AlertsSection(
+                            alerts = alerts,
+                            onCreate = { vm.openCreateAlert() },
+                            onToggle = vm::toggleAlert,
+                            onDelete = vm::deleteAlert
+                        )
+                    }
+                    Spacer(Modifier.height(24.dp))
+                }
+            }
         }
     }
 
