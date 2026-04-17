@@ -30,9 +30,16 @@ data class DetailUiState(
     val chartLoading: Boolean = false,
     val chartError: String? = null,
     val inWatchlist: Boolean = false,
+    val entryPrice: Double? = null,
+    val quantity: Double? = null,
+    val notes: String? = null,
     val createAlertOpen: Boolean = false,
     val newAlertType: AlertType = AlertType.PRICE_ABOVE,
-    val newAlertThreshold: String = ""
+    val newAlertThreshold: String = "",
+    val editPositionOpen: Boolean = false,
+    val entryPriceDraft: String = "",
+    val quantityDraft: String = "",
+    val notesDraft: String = ""
 )
 
 class TickerDetailViewModel(
@@ -53,7 +60,16 @@ class TickerDetailViewModel(
         viewModelScope.launch { refresh(force = false) }
         viewModelScope.launch { loadChart(ChartRange.ONE_DAY) }
         viewModelScope.launch {
-            _ui.update { it.copy(inWatchlist = watchlistDao.getBySymbol(symbol) != null) }
+            watchlistDao.observeBySymbol(symbol).collect { entity ->
+                _ui.update {
+                    it.copy(
+                        inWatchlist = entity != null,
+                        entryPrice = entity?.entryPrice,
+                        quantity = entity?.quantity,
+                        notes = entity?.notes
+                    )
+                }
+            }
         }
     }
 
@@ -125,10 +141,23 @@ class TickerDetailViewModel(
         val threshold = s.newAlertThreshold.replace(",", ".").toDoubleOrNull() ?: return
         viewModelScope.launch {
             val initialState = _ui.value.quote?.let { q ->
+                val entry = _ui.value.entryPrice
                 when (s.newAlertType) {
                     AlertType.PRICE_ABOVE -> q.price > threshold
                     AlertType.PRICE_BELOW -> q.price < threshold
                     AlertType.PERCENT_CHANGE_DAY -> false
+                    AlertType.PERCENT_ABOVE_ENTRY -> {
+                        if (entry != null && entry > 0) {
+                            val pct = (q.price - entry) / entry * 100.0
+                            pct >= threshold
+                        } else false
+                    }
+                    AlertType.PERCENT_BELOW_ENTRY -> {
+                        if (entry != null && entry > 0) {
+                            val pct = (q.price - entry) / entry * 100.0
+                            pct <= -threshold
+                        } else false
+                    }
                 }
             }
             alertDao.insert(
@@ -148,4 +177,64 @@ class TickerDetailViewModel(
         viewModelScope.launch { alertDao.setEnabled(id, enabled) }
 
     fun deleteAlert(id: Long) = viewModelScope.launch { alertDao.delete(id) }
+
+    // ---------- Position (entry price / quantity / notes) ----------
+
+    fun openEditPosition() = _ui.update {
+        it.copy(
+            editPositionOpen = true,
+            entryPriceDraft = it.entryPrice?.let { v -> trimmed(v) } ?: "",
+            quantityDraft = it.quantity?.let { v -> trimmed(v) } ?: "",
+            notesDraft = it.notes.orEmpty()
+        )
+    }
+
+    fun closeEditPosition() = _ui.update { it.copy(editPositionOpen = false) }
+
+    fun onEntryPriceDraftChange(v: String) = _ui.update { it.copy(entryPriceDraft = v) }
+    fun onQuantityDraftChange(v: String) = _ui.update { it.copy(quantityDraft = v) }
+    fun onNotesDraftChange(v: String) = _ui.update { it.copy(notesDraft = v) }
+
+    fun savePosition() {
+        val s = _ui.value
+        val entry = parseDecimal(s.entryPriceDraft)
+        val qty = parseDecimal(s.quantityDraft)
+        val notes = s.notesDraft.trim().ifBlank { null }
+        viewModelScope.launch {
+            // If this symbol isn't in the watchlist yet, add it first so the
+            // position info has a row to attach to.
+            if (watchlistDao.getBySymbol(symbol) == null) {
+                val position = watchlistDao.count()
+                watchlistDao.upsert(
+                    WatchlistItemEntity(
+                        symbol = symbol,
+                        name = _ui.value.quote?.name,
+                        position = position
+                    )
+                )
+            }
+            watchlistDao.updateEntryInfo(symbol, entry, qty, notes)
+            _ui.update { it.copy(editPositionOpen = false) }
+        }
+    }
+
+    fun clearPosition() {
+        viewModelScope.launch {
+            watchlistDao.updateEntryInfo(symbol, null, null, null)
+            _ui.update {
+                it.copy(
+                    editPositionOpen = false,
+                    entryPriceDraft = "",
+                    quantityDraft = "",
+                    notesDraft = ""
+                )
+            }
+        }
+    }
+
+    private fun parseDecimal(raw: String): Double? =
+        raw.replace(",", ".").trim().takeIf { it.isNotEmpty() }?.toDoubleOrNull()
+
+    private fun trimmed(v: Double): String =
+        if (v % 1.0 == 0.0) "%.0f".format(v) else v.toString()
 }

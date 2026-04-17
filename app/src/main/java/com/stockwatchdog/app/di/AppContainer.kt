@@ -62,7 +62,10 @@ class AppContainer(private val context: Context) {
         context.applicationContext,
         AppDatabase::class.java,
         "stockwatchdog.db"
-    ).fallbackToDestructiveMigration().build()
+    )
+        .addMigrations(AppDatabase.MIGRATION_1_2)
+        .fallbackToDestructiveMigration()
+        .build()
 
     val settingsRepository: SettingsRepository = SettingsRepository(context.applicationContext)
 

@@ -51,6 +51,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.stockwatchdog.app.di.AppContainer
+import com.stockwatchdog.app.domain.PositionCalculator
 import com.stockwatchdog.app.domain.Quote
 import com.stockwatchdog.app.ui.components.changeColor
 import com.stockwatchdog.app.ui.components.formatPrice
@@ -188,6 +189,20 @@ private fun WatchRowItem(
                     subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+            if (row.entryPrice != null && row.quote != null) {
+                val pnl = PositionCalculator.calculate(
+                    currentPrice = row.quote.price,
+                    entryPrice = row.entryPrice,
+                    quantity = row.quantity
+                )
+                Text(
+                    "vs entry ${formatSignedPercent(pnl.percentPnl)}" +
+                        (pnl.totalPnl?.let { " • ${formatSignedChange(it)}" } ?: ""),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = changeColor(pnl.percentPnl),
                     maxLines = 1
                 )
             }

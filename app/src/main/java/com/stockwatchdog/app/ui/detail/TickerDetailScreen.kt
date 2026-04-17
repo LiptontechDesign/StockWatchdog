@@ -54,6 +54,7 @@ import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.AlertType
 import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.domain.ChartRange
+import com.stockwatchdog.app.domain.PositionCalculator
 import com.stockwatchdog.app.ui.components.PriceLineChart
 import com.stockwatchdog.app.ui.components.changeColor
 import com.stockwatchdog.app.ui.components.formatPrice
@@ -146,6 +147,12 @@ fun TickerDetailScreen(
             SummaryGrid(state)
             Spacer(Modifier.height(16.dp))
 
+            PositionSection(
+                state = state,
+                onEdit = { vm.openEditPosition() }
+            )
+            Spacer(Modifier.height(16.dp))
+
             AlertsSection(
                 alerts = alerts,
                 onCreate = { vm.openCreateAlert() },
@@ -159,10 +166,25 @@ fun TickerDetailScreen(
         CreateAlertDialog(
             type = state.newAlertType,
             threshold = state.newAlertThreshold,
+            hasEntryPrice = state.entryPrice != null,
             onTypeChange = vm::onAlertTypeChange,
             onThresholdChange = vm::onAlertThresholdChange,
             onSave = { vm.saveAlert() },
             onDismiss = { vm.closeCreateAlert() }
+        )
+    }
+
+    if (state.editPositionOpen) {
+        EditPositionDialog(
+            entryPriceDraft = state.entryPriceDraft,
+            quantityDraft = state.quantityDraft,
+            notesDraft = state.notesDraft,
+            onEntryChange = vm::onEntryPriceDraftChange,
+            onQtyChange = vm::onQuantityDraftChange,
+            onNotesChange = vm::onNotesDraftChange,
+            onSave = { vm.savePosition() },
+            onClear = { vm.clearPosition() },
+            onDismiss = { vm.closeEditPosition() }
         )
     }
 }
@@ -364,10 +386,187 @@ private fun AlertRow(
     }
 }
 
+@Composable
+private fun PositionSection(
+    state: DetailUiState,
+    onEdit: () -> Unit
+) {
+    val pnl = PositionCalculator.calculate(
+        currentPrice = state.quote?.price,
+        entryPrice = state.entryPrice,
+        quantity = state.quantity
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Your position",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                TextButton(onClick = onEdit) {
+                    Text(if (state.entryPrice == null) "Add position" else "Edit")
+                }
+            }
+
+            if (state.entryPrice == null) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "Track how this ticker is doing vs your entry price. " +
+                        "Optional — add a quantity too for $ P&L.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Spacer(Modifier.height(6.dp))
+                SummaryRow(
+                    "Entry price", formatPrice(state.entryPrice),
+                    "Quantity", state.quantity?.let { formatQuantity(it) } ?: "—"
+                )
+                Spacer(Modifier.height(8.dp))
+
+                val perShareText = pnl.perSharePnl?.let { formatSignedChange(it) } ?: "—"
+                val pctText = formatSignedPercent(pnl.percentPnl)
+                Row(Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Since entry",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "$perShareText ($pctText)",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = changeColor(pnl.percentPnl)
+                        )
+                    }
+                    if (pnl.totalPnl != null) {
+                        Column(
+                            Modifier.weight(1f),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            Text(
+                                "Total P&L",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                formatSignedChange(pnl.totalPnl),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = changeColor(pnl.totalPnl)
+                            )
+                        }
+                    }
+                }
+
+                if (pnl.positionValue != null || pnl.costBasis != null) {
+                    Spacer(Modifier.height(8.dp))
+                    SummaryRow(
+                        "Position value", formatPrice(pnl.positionValue),
+                        "Cost basis", formatPrice(pnl.costBasis)
+                    )
+                }
+
+                if (!state.notes.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        state.notes,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatQuantity(q: Double): String =
+    if (q % 1.0 == 0.0) "%.0f".format(q) else "%.4f".format(q).trimEnd('0').trimEnd('.')
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditPositionDialog(
+    entryPriceDraft: String,
+    quantityDraft: String,
+    notesDraft: String,
+    onEntryChange: (String) -> Unit,
+    onQtyChange: (String) -> Unit,
+    onNotesChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Your position") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = entryPriceDraft,
+                    onValueChange = onEntryChange,
+                    label = { Text("Entry price (required)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = quantityDraft,
+                    onValueChange = onQtyChange,
+                    label = { Text("Quantity (optional)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = notesDraft,
+                    onValueChange = onNotesChange,
+                    label = { Text("Note (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Entry price and quantity support decimals. Leave quantity " +
+                        "blank if you only want % vs entry.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onSave,
+                enabled = entryPriceDraft.replace(",", ".").toDoubleOrNull()?.let { it > 0 } == true
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onClear) { Text("Clear") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        }
+    )
+}
+
 fun describeAlert(a: AlertEntity): String = when (a.type) {
     AlertType.PRICE_ABOVE -> "Price above ${"%.2f".format(a.threshold)}"
     AlertType.PRICE_BELOW -> "Price below ${"%.2f".format(a.threshold)}"
     AlertType.PERCENT_CHANGE_DAY -> "Day change exceeds ${"%.2f".format(a.threshold)}%"
+    AlertType.PERCENT_ABOVE_ENTRY -> "Gain vs entry reaches +${"%.2f".format(a.threshold)}%"
+    AlertType.PERCENT_BELOW_ENTRY -> "Loss vs entry reaches -${"%.2f".format(a.threshold)}%"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -375,11 +574,17 @@ fun describeAlert(a: AlertEntity): String = when (a.type) {
 private fun CreateAlertDialog(
     type: AlertType,
     threshold: String,
+    hasEntryPrice: Boolean,
     onTypeChange: (AlertType) -> Unit,
     onThresholdChange: (String) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val isEntryBased = type == AlertType.PERCENT_ABOVE_ENTRY ||
+        type == AlertType.PERCENT_BELOW_ENTRY
+    val isPercent = type == AlertType.PERCENT_CHANGE_DAY || isEntryBased
+    val thresholdValid = threshold.replace(",", ".").toDoubleOrNull()?.let { it > 0 } == true
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New alert") },
@@ -406,22 +611,66 @@ private fun CreateAlertDialog(
                         label = { Text("% day") }
                     )
                 }
+                Spacer(Modifier.height(6.dp))
+                Row {
+                    FilterChip(
+                        selected = type == AlertType.PERCENT_ABOVE_ENTRY,
+                        onClick = { onTypeChange(AlertType.PERCENT_ABOVE_ENTRY) },
+                        enabled = hasEntryPrice,
+                        label = { Text("Gain vs entry") }
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    FilterChip(
+                        selected = type == AlertType.PERCENT_BELOW_ENTRY,
+                        onClick = { onTypeChange(AlertType.PERCENT_BELOW_ENTRY) },
+                        enabled = hasEntryPrice,
+                        label = { Text("Loss vs entry") }
+                    )
+                }
+                if (!hasEntryPrice) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Entry-based alerts need an entry price. " +
+                            "Close this and tap \"Add position\" first.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = threshold,
                     onValueChange = onThresholdChange,
                     label = {
-                        Text(if (type == AlertType.PERCENT_CHANGE_DAY) "Percent (e.g. 3.5)" else "Price")
+                        Text(
+                            when (type) {
+                                AlertType.PRICE_ABOVE, AlertType.PRICE_BELOW ->
+                                    "Price"
+                                AlertType.PERCENT_CHANGE_DAY ->
+                                    "Percent (e.g. 3.5)"
+                                AlertType.PERCENT_ABOVE_ENTRY ->
+                                    "Gain % (e.g. 10 for +10%)"
+                                AlertType.PERCENT_BELOW_ENTRY ->
+                                    "Loss % (e.g. 5 for -5%)"
+                            }
+                        )
                     },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
+                if (isPercent) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Use a positive number. For \"Loss vs entry 5%\" enter 5.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = onSave,
-                enabled = threshold.replace(",", ".").toDoubleOrNull() != null
+                enabled = thresholdValid && (!isEntryBased || hasEntryPrice)
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }

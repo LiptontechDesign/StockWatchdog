@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -18,12 +20,17 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -43,6 +50,10 @@ fun SettingsScreen(container: AppContainer) {
         }
     )
     val s by vm.state.collectAsStateWithLifecycle()
+    var editingTwelve by rememberSaveable { mutableStateOf(false) }
+    var editingAlpha by rememberSaveable { mutableStateOf(false) }
+    var twelveDraft by rememberSaveable { mutableStateOf("") }
+    var alphaDraft by rememberSaveable { mutableStateOf("") }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Settings", fontWeight = FontWeight.SemiBold) }) }
@@ -68,20 +79,46 @@ fun SettingsScreen(container: AppContainer) {
                 )
             }
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = s.twelveDataKey,
-                onValueChange = { vm.setTwelveKey(it) },
-                label = { Text("Twelve Data API key") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+            ApiKeySetting(
+                label = "Twelve Data API key",
+                hasSavedValue = s.twelveDataKey.isNotBlank(),
+                isEditing = editingTwelve,
+                draftValue = twelveDraft,
+                onOpenEditor = {
+                    editingTwelve = true
+                    twelveDraft = ""
+                },
+                onDraftChange = { twelveDraft = it },
+                onApply = {
+                    vm.setTwelveKey(twelveDraft)
+                    twelveDraft = ""
+                    editingTwelve = false
+                },
+                onCancel = {
+                    twelveDraft = ""
+                    editingTwelve = false
+                }
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = s.alphaVantageKey,
-                onValueChange = { vm.setAlphaKey(it) },
-                label = { Text("Alpha Vantage API key") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+            ApiKeySetting(
+                label = "Alpha Vantage API key",
+                hasSavedValue = s.alphaVantageKey.isNotBlank(),
+                isEditing = editingAlpha,
+                draftValue = alphaDraft,
+                onOpenEditor = {
+                    editingAlpha = true
+                    alphaDraft = ""
+                },
+                onDraftChange = { alphaDraft = it },
+                onApply = {
+                    vm.setAlphaKey(alphaDraft)
+                    alphaDraft = ""
+                    editingAlpha = false
+                },
+                onCancel = {
+                    alphaDraft = ""
+                    editingAlpha = false
+                }
             )
 
             Spacer(Modifier.height(16.dp))
@@ -160,6 +197,64 @@ fun SettingsScreen(container: AppContainer) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun ApiKeySetting(
+    label: String,
+    hasSavedValue: Boolean,
+    isEditing: Boolean,
+    draftValue: String,
+    onOpenEditor: () -> Unit,
+    onDraftChange: (String) -> Unit,
+    onApply: () -> Unit,
+    onCancel: () -> Unit
+) {
+    if (isEditing) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = draftValue,
+                onValueChange = onDraftChange,
+                label = { Text(label) },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onApply,
+                    enabled = draftValue.isNotBlank()
+                ) {
+                    Text("Apply")
+                }
+                TextButton(onClick = onCancel) {
+                    Text("Cancel")
+                }
+            }
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    if (hasSavedValue) "Saved and hidden" else "Not set",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(onClick = onOpenEditor) {
+                Text(if (hasSavedValue) "Replace" else "Paste key")
+            }
         }
     }
 }

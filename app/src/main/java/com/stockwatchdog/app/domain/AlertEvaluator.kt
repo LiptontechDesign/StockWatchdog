@@ -29,13 +29,20 @@ object AlertEvaluator {
         timeZone = TimeZone.getDefault()
     }
 
-    fun evaluate(alert: AlertEntity, quote: Quote, now: Long = System.currentTimeMillis()): AlertEvaluation {
+    fun evaluate(
+        alert: AlertEntity,
+        quote: Quote,
+        now: Long = System.currentTimeMillis(),
+        entryPrice: Double? = null
+    ): AlertEvaluation {
         if (!alert.enabled) return AlertEvaluation(alert, alert, shouldNotify = false)
 
         return when (alert.type) {
             AlertType.PRICE_ABOVE -> evalAbove(alert, quote, now)
             AlertType.PRICE_BELOW -> evalBelow(alert, quote, now)
             AlertType.PERCENT_CHANGE_DAY -> evalPercent(alert, quote, now)
+            AlertType.PERCENT_ABOVE_ENTRY -> evalAboveEntry(alert, quote, entryPrice, now)
+            AlertType.PERCENT_BELOW_ENTRY -> evalBelowEntry(alert, quote, entryPrice, now)
         }
     }
 
@@ -80,6 +87,56 @@ object AlertEvaluator {
         } else null
         val updated = a.copy(
             lastPercentTriggerDate = if (shouldNotify) today else a.lastPercentTriggerDate,
+            lastTriggeredAtMillis = if (shouldNotify) now else a.lastTriggeredAtMillis
+        )
+        return AlertEvaluation(a, updated, shouldNotify, message)
+    }
+
+    private fun evalAboveEntry(
+        a: AlertEntity,
+        q: Quote,
+        entryPrice: Double?,
+        now: Long
+    ): AlertEvaluation {
+        if (entryPrice == null || entryPrice <= 0.0) {
+            // No entry price tracked yet; keep the alert dormant without updating state.
+            return AlertEvaluation(a, a, shouldNotify = false)
+        }
+        val pct = (q.price - entryPrice) / entryPrice * 100.0
+        val triggered = pct >= a.threshold
+        val previously = a.lastCrossingState ?: false
+        val shouldNotify = triggered && !previously
+        val message = if (shouldNotify)
+            "${a.symbol} is ${"%.2f".format(pct)}% above your entry " +
+                "(target: +${"%.2f".format(a.threshold)}%)"
+        else null
+        val updated = a.copy(
+            lastCrossingState = triggered,
+            lastTriggeredAtMillis = if (shouldNotify) now else a.lastTriggeredAtMillis
+        )
+        return AlertEvaluation(a, updated, shouldNotify, message)
+    }
+
+    private fun evalBelowEntry(
+        a: AlertEntity,
+        q: Quote,
+        entryPrice: Double?,
+        now: Long
+    ): AlertEvaluation {
+        if (entryPrice == null || entryPrice <= 0.0) {
+            return AlertEvaluation(a, a, shouldNotify = false)
+        }
+        val pct = (q.price - entryPrice) / entryPrice * 100.0
+        // User enters a positive magnitude: e.g. 5 means "fire when down 5% or more".
+        val triggered = pct <= -a.threshold
+        val previously = a.lastCrossingState ?: false
+        val shouldNotify = triggered && !previously
+        val message = if (shouldNotify)
+            "${a.symbol} is ${"%.2f".format(pct)}% vs your entry " +
+                "(trigger: -${"%.2f".format(a.threshold)}%)"
+        else null
+        val updated = a.copy(
+            lastCrossingState = triggered,
             lastTriggeredAtMillis = if (shouldNotify) now else a.lastTriggeredAtMillis
         )
         return AlertEvaluation(a, updated, shouldNotify, message)

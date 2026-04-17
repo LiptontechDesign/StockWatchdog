@@ -23,6 +23,8 @@ data class WatchRow(
     val symbol: String,
     val name: String?,
     val quote: Quote?,
+    val entryPrice: Double? = null,
+    val quantity: Double? = null,
     val error: String? = null
 )
 
@@ -57,7 +59,13 @@ class WatchlistViewModel(
         viewModelScope.launch {
             combine(items, quoteCache) { list, cache ->
                 list.map { e ->
-                    cache[e.symbol] ?: WatchRow(symbol = e.symbol, name = e.name, quote = null)
+                    val base = cache[e.symbol]
+                        ?: WatchRow(symbol = e.symbol, name = e.name, quote = null)
+                    base.copy(
+                        name = base.name ?: e.name,
+                        entryPrice = e.entryPrice,
+                        quantity = e.quantity
+                    )
                 }
             }.collect { rows ->
                 _ui.update { it.copy(rows = rows) }

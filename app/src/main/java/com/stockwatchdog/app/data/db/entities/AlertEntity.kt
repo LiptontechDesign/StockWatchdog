@@ -6,7 +6,11 @@ import androidx.room.PrimaryKey
 enum class AlertType {
     PRICE_ABOVE,
     PRICE_BELOW,
-    PERCENT_CHANGE_DAY
+    PERCENT_CHANGE_DAY,
+    /** Fires once when price rises to >= threshold% above your entry price. */
+    PERCENT_ABOVE_ENTRY,
+    /** Fires once when price falls to >= threshold% below your entry price. */
+    PERCENT_BELOW_ENTRY
 }
 
 /**

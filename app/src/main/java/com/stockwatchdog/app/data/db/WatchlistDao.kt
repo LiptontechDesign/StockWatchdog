@@ -19,6 +19,9 @@ interface WatchlistDao {
     @Query("SELECT * FROM watchlist WHERE symbol = :symbol LIMIT 1")
     suspend fun getBySymbol(symbol: String): WatchlistItemEntity?
 
+    @Query("SELECT * FROM watchlist WHERE symbol = :symbol LIMIT 1")
+    fun observeBySymbol(symbol: String): Flow<WatchlistItemEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: WatchlistItemEntity)
 
@@ -27,6 +30,17 @@ interface WatchlistDao {
 
     @Query("UPDATE watchlist SET position = :position WHERE symbol = :symbol")
     suspend fun updatePosition(symbol: String, position: Int)
+
+    @Query(
+        "UPDATE watchlist SET entryPrice = :entryPrice, quantity = :quantity, " +
+            "notes = :notes WHERE symbol = :symbol"
+    )
+    suspend fun updateEntryInfo(
+        symbol: String,
+        entryPrice: Double?,
+        quantity: Double?,
+        notes: String?
+    )
 
     @Transaction
     suspend fun reorder(symbolsInOrder: List<String>) {

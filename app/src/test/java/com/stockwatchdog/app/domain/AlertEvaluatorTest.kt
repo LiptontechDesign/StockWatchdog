@@ -82,4 +82,68 @@ class AlertEvaluatorTest {
         val result = AlertEvaluator.evaluate(alert, quote(price = 999.0))
         assertFalse(result.shouldNotify)
     }
+
+    @Test
+    fun gainVsEntry_firesOnceOnCrossingAndReArms() {
+        val entry = 100.0
+        val alert = AlertEntity(
+            id = 5L, symbol = "AAPL",
+            type = AlertType.PERCENT_ABOVE_ENTRY, threshold = 10.0,
+            lastCrossingState = false
+        )
+
+        // Price at +5% vs entry: below threshold.
+        val below = AlertEvaluator.evaluate(alert, quote(price = 105.0), entryPrice = entry)
+        assertFalse(below.shouldNotify)
+
+        // Price at +12% vs entry: crosses threshold, fires.
+        val cross = AlertEvaluator.evaluate(below.updated, quote(price = 112.0), entryPrice = entry)
+        assertTrue(cross.shouldNotify)
+
+        // Still above threshold: must not re-fire.
+        val held = AlertEvaluator.evaluate(cross.updated, quote(price = 120.0), entryPrice = entry)
+        assertFalse(held.shouldNotify)
+
+        // Drops back to +3%: disarms.
+        val reset = AlertEvaluator.evaluate(held.updated, quote(price = 103.0), entryPrice = entry)
+        assertFalse(reset.shouldNotify)
+
+        // Climbs above again: fires again.
+        val again = AlertEvaluator.evaluate(reset.updated, quote(price = 115.0), entryPrice = entry)
+        assertTrue(again.shouldNotify)
+    }
+
+    @Test
+    fun lossVsEntry_firesWhenDropThresholdReached() {
+        val entry = 200.0
+        val alert = AlertEntity(
+            id = 6L, symbol = "AAPL",
+            type = AlertType.PERCENT_BELOW_ENTRY, threshold = 5.0,
+            lastCrossingState = false
+        )
+        // -4% vs entry: not yet.
+        val not = AlertEvaluator.evaluate(alert, quote(price = 192.0), entryPrice = entry)
+        assertFalse(not.shouldNotify)
+
+        // -6% vs entry: fires.
+        val hit = AlertEvaluator.evaluate(not.updated, quote(price = 188.0), entryPrice = entry)
+        assertTrue(hit.shouldNotify)
+
+        // Still below threshold: no re-fire.
+        val held = AlertEvaluator.evaluate(hit.updated, quote(price = 180.0), entryPrice = entry)
+        assertFalse(held.shouldNotify)
+    }
+
+    @Test
+    fun entryBasedAlert_noopWhenEntryMissing() {
+        val alert = AlertEntity(
+            id = 7L, symbol = "AAPL",
+            type = AlertType.PERCENT_ABOVE_ENTRY, threshold = 1.0,
+            lastCrossingState = false
+        )
+        val result = AlertEvaluator.evaluate(alert, quote(price = 9999.0), entryPrice = null)
+        assertFalse(result.shouldNotify)
+        // State left untouched so the alert cleanly resumes once entry is added.
+        assertEquals(alert, result.updated)
+    }
 }

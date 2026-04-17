@@ -28,18 +28,26 @@ class AlertCheckWorker(
         if (!settings.notificationsEnabled) return Result.success()
 
         val alertDao = container.database.alertDao()
+        val watchlistDao = container.database.watchlistDao()
         val enabled = alertDao.getAllEnabled()
         if (enabled.isEmpty()) return Result.success()
 
         val symbols = enabled.map { it.symbol }.distinct()
         val results = container.marketDataRepository.refreshQuotes(symbols)
+        val entryPrices: Map<String, Double?> = symbols.associateWith { sym ->
+            watchlistDao.getBySymbol(sym)?.entryPrice
+        }
 
         var notifId = (System.currentTimeMillis() and 0x7fffffff).toInt()
         for (alert in enabled) {
             val res = results[alert.symbol] ?: continue
             if (res !is DataResult.Success) continue
             val quote = res.value
-            val eval = AlertEvaluator.evaluate(alert, quote)
+            val eval = AlertEvaluator.evaluate(
+                alert = alert,
+                quote = quote,
+                entryPrice = entryPrices[alert.symbol]
+            )
             if (eval.updated != alert) alertDao.update(eval.updated)
             if (eval.shouldNotify) {
                 val title = "Stock Alert: ${alert.symbol}"
