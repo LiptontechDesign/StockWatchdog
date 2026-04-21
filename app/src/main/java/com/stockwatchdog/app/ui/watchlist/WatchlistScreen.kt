@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -94,6 +95,9 @@ fun WatchlistScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { vm.openAddSheet() }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add ticker")
+                    }
                     IconButton(onClick = { vm.refresh(force = true) }) {
                         if (state.isRefreshing) {
                             CircularProgressIndicator(
@@ -119,7 +123,10 @@ fun WatchlistScreen(
             if (items.isEmpty()) {
                 EmptyWatchlist(onAdd = { vm.openAddSheet() })
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 96.dp)
+                ) {
                     items(state.rows, key = { it.symbol }) { row ->
                         WatchRowItem(
                             row = row,
