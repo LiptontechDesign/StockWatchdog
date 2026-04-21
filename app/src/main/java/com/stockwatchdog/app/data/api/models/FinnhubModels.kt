@@ -1,0 +1,41 @@
+package com.stockwatchdog.app.data.api.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * Response shape for Finnhub `/quote` endpoint.
+ * https://finnhub.io/docs/api/quote
+ *
+ *  c: current price, d: change, dp: percent change,
+ *  h: day high, l: day low, o: open, pc: previous close, t: epoch seconds
+ */
+@Serializable
+data class FinnhubQuote(
+    @SerialName("c") val current: Double? = null,
+    @SerialName("d") val change: Double? = null,
+    @SerialName("dp") val percentChange: Double? = null,
+    @SerialName("h") val high: Double? = null,
+    @SerialName("l") val low: Double? = null,
+    @SerialName("o") val open: Double? = null,
+    @SerialName("pc") val previousClose: Double? = null,
+    @SerialName("t") val timestamp: Long? = null
+)
+
+/**
+ * Response shape for Finnhub `/search` endpoint.
+ * https://finnhub.io/docs/api/symbol-search
+ */
+@Serializable
+data class FinnhubSymbolSearch(
+    val count: Int = 0,
+    val result: List<FinnhubSymbolMatch> = emptyList()
+)
+
+@Serializable
+data class FinnhubSymbolMatch(
+    val symbol: String,
+    val description: String? = null,
+    val displaySymbol: String? = null,
+    val type: String? = null
+)

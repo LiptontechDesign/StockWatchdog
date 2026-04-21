@@ -1,11 +1,14 @@
 package com.stockwatchdog.app.data.api
 
 import com.stockwatchdog.app.data.api.models.AlphaCandle
+import com.stockwatchdog.app.data.api.models.FinnhubQuote
 import com.stockwatchdog.app.data.api.models.TwelveQuote
+import com.stockwatchdog.app.data.api.models.YahooChartResult
 import com.stockwatchdog.app.data.db.PriceCacheDao
 import com.stockwatchdog.app.data.db.entities.PriceCacheEntity
 import com.stockwatchdog.app.data.prefs.ApiProvider
 import com.stockwatchdog.app.data.prefs.SettingsRepository
+import com.stockwatchdog.app.data.prefs.UserSettings
 import com.stockwatchdog.app.domain.ChartRange
 import com.stockwatchdog.app.domain.DataResult
 import com.stockwatchdog.app.domain.PricePoint
@@ -19,15 +22,28 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Single entry point for market data. Selects the active API provider from
- * [SettingsRepository], normalizes results to [Quote]/[PricePoint], caches
- * quotes in Room for offline viewing, and maps errors to friendly messages.
+ * Single entry point for market data. Normalizes results from multiple
+ * providers (Finnhub, Twelve Data, Yahoo Finance, Alpha Vantage) to the
+ * app's domain types, caches quotes in Room for offline viewing, and maps
+ * errors to friendly messages.
+ *
+ * In [ApiProvider.AUTO] mode, each operation walks a provider chain:
+ *  - quote:  Finnhub -> Twelve Data -> Yahoo -> Alpha Vantage
+ *  - series: Yahoo   -> Twelve Data -> Alpha Vantage
+ *  - search: Yahoo   -> Finnhub    -> Twelve Data
+ *
+ * Providers that return a rate-limit/auth/quota error are placed in a
+ * short cooldown via [ProviderCooldown] so subsequent calls within the
+ * cooldown window skip them immediately and the next provider is tried.
  */
 class MarketDataRepository(
     private val twelveData: TwelveDataApi,
     private val alphaVantage: AlphaVantageApi,
+    private val finnhub: FinnhubApi,
+    private val yahooFinance: YahooFinanceApi,
     private val settings: SettingsRepository,
-    private val priceCacheDao: PriceCacheDao
+    private val priceCacheDao: PriceCacheDao,
+    private val cooldown: ProviderCooldown
 ) {
 
     /** Cache TTL for quotes in foreground refreshes. */
@@ -50,7 +66,8 @@ class MarketDataRepository(
     suspend fun refreshQuotes(symbols: List<String>): Map<String, DataResult<Quote>> {
         if (symbols.isEmpty()) return emptyMap()
         val out = mutableMapOf<String, DataResult<Quote>>()
-        // Sequential to respect free-tier rate limits (Twelve Data free ~8 req/min).
+        // Sequential to respect free-tier rate limits. The in-repo cooldown
+        // keeps rotating providers automatically if any runs out mid-batch.
         for (s in symbols) {
             out[s] = fetchQuote(s).also { res ->
                 if (res is DataResult.Success) {
@@ -63,95 +80,297 @@ class MarketDataRepository(
 
     suspend fun search(query: String): DataResult<List<SymbolMatch>> = withContext(Dispatchers.IO) {
         val s = settings.settings.first()
-        runCatchingApi {
-            when (s.provider) {
-                ApiProvider.TWELVE_DATA -> {
-                    val r = twelveData.search(query)
-                    r.data.map {
-                        SymbolMatch(
-                            symbol = it.symbol,
-                            name = it.instrument_name,
-                            exchange = it.exchange,
-                            type = it.instrumentType
-                        )
-                    }
-                }
-                ApiProvider.ALPHA_VANTAGE -> {
-                    val r = alphaVantage.search(query, s.activeKey)
-                    r.note?.let { return@runCatchingApi error(it) }
-                    r.information?.let { return@runCatchingApi error(it) }
-                    r.bestMatches.mapNotNull { m ->
-                        m.symbol?.let {
-                            SymbolMatch(
-                                symbol = it,
-                                name = m.name,
-                                exchange = m.region,
-                                type = m.type
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        val chain = searchChain(s)
+        runChain(chain, "search") { provider -> searchFrom(provider, query, s) }
     }
 
     suspend fun getSeries(symbol: String, range: ChartRange): DataResult<List<PricePoint>> =
         withContext(Dispatchers.IO) {
             val s = settings.settings.first()
-            runCatchingApi {
-                when (s.provider) {
-                    ApiProvider.TWELVE_DATA -> {
-                        val (interval, outputSize) = when (range) {
-                            ChartRange.ONE_DAY -> "5min" to 78
-                            ChartRange.FIVE_DAYS -> "30min" to 65
-                            ChartRange.ONE_MONTH -> "1day" to 30
-                            ChartRange.THREE_MONTHS -> "1day" to 90
-                        }
-                        val r = twelveData.timeSeries(symbol, interval, outputSize, s.activeKey)
-                        if (r.status == "error") return@runCatchingApi error(r.message ?: "API error")
-                        val fmt = if (interval == "1day")
-                            SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                        else
-                            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-                        fmt.timeZone = TimeZone.getTimeZone("UTC")
-                        // Twelve Data returns newest-first; reverse to oldest-first.
-                        r.values.asReversed().mapNotNull { c ->
-                            val close = c.close?.toDoubleOrNull() ?: return@mapNotNull null
-                            val t = runCatching { fmt.parse(c.datetime)?.time }.getOrNull()
-                                ?: return@mapNotNull null
-                            PricePoint(t, close)
-                        }
+            val chain = seriesChain(s)
+            runChain(chain, "series") { provider -> seriesFrom(provider, symbol, range, s) }
+        }
+
+    private suspend fun fetchQuote(symbol: String): DataResult<Quote> = withContext(Dispatchers.IO) {
+        val s = settings.settings.first()
+        val chain = quoteChain(s)
+        runChain(chain, "quote") { provider -> quoteFrom(provider, symbol, s) }
+    }
+
+    // --- Chains ------------------------------------------------------------
+
+    private fun quoteChain(s: UserSettings): List<ApiProvider> = when (s.provider) {
+        ApiProvider.AUTO -> listOfNotNull(
+            if (s.finnhubKey.isNotBlank()) ApiProvider.FINNHUB else null,
+            if (s.twelveDataKey.isNotBlank()) ApiProvider.TWELVE_DATA else null,
+            ApiProvider.YAHOO,
+            if (s.alphaVantageKey.isNotBlank()) ApiProvider.ALPHA_VANTAGE else null
+        )
+        else -> listOf(s.provider)
+    }
+
+    private fun seriesChain(s: UserSettings): List<ApiProvider> = when (s.provider) {
+        ApiProvider.AUTO -> listOfNotNull(
+            ApiProvider.YAHOO,
+            if (s.twelveDataKey.isNotBlank()) ApiProvider.TWELVE_DATA else null,
+            if (s.alphaVantageKey.isNotBlank()) ApiProvider.ALPHA_VANTAGE else null
+        )
+        ApiProvider.FINNHUB -> listOf(ApiProvider.YAHOO) // Finnhub candles are premium
+        else -> listOf(s.provider)
+    }
+
+    private fun searchChain(s: UserSettings): List<ApiProvider> = when (s.provider) {
+        ApiProvider.AUTO -> listOfNotNull(
+            ApiProvider.YAHOO,
+            if (s.finnhubKey.isNotBlank()) ApiProvider.FINNHUB else null,
+            ApiProvider.TWELVE_DATA
+        )
+        else -> listOf(s.provider)
+    }
+
+    // --- Chain runner ------------------------------------------------------
+
+    private suspend fun <T> runChain(
+        chain: List<ApiProvider>,
+        op: String,
+        block: suspend (ApiProvider) -> T
+    ): DataResult<T> {
+        if (chain.isEmpty()) {
+            return DataResult.Error(
+                "No data provider configured for $op. Add an API key in Settings.",
+                retryable = false
+            )
+        }
+        var lastError: DataResult.Error? = null
+        for (provider in chain) {
+            val key = provider.name
+            if (cooldown.isCoolingDown(key)) continue
+            val result = runCatchingApi { block(provider) }
+            when (result) {
+                is DataResult.Success -> {
+                    cooldown.clear(key)
+                    return result
+                }
+                is DataResult.Error -> {
+                    lastError = result
+                    if (looksLikeRateLimit(result.message)) {
+                        cooldown.trip(key, ProviderCooldown.PER_MINUTE_CAP_MS)
+                    } else if (looksLikeDailyCap(result.message)) {
+                        cooldown.trip(key, ProviderCooldown.PER_DAY_CAP_MS)
                     }
-                    ApiProvider.ALPHA_VANTAGE -> {
-                        when (range) {
-                            ChartRange.ONE_DAY, ChartRange.FIVE_DAYS -> {
-                                val interval = if (range == ChartRange.ONE_DAY) "5min" else "30min"
-                                val r = alphaVantage.intraday(symbol, interval, "compact", s.activeKey)
-                                r.note?.let { return@runCatchingApi error(it) }
-                                r.information?.let { return@runCatchingApi error(it) }
-                                r.errorMessage?.let { return@runCatchingApi error(it) }
-                                val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-                                fmt.timeZone = TimeZone.getTimeZone("UTC")
-                                seriesToPoints(r.series(), fmt)
-                            }
-                            ChartRange.ONE_MONTH, ChartRange.THREE_MONTHS -> {
-                                val r = alphaVantage.daily(symbol, "compact", s.activeKey)
-                                r.note?.let { return@runCatchingApi error(it) }
-                                r.information?.let { return@runCatchingApi error(it) }
-                                r.errorMessage?.let { return@runCatchingApi error(it) }
-                                val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                                fmt.timeZone = TimeZone.getTimeZone("UTC")
-                                val points = seriesToPoints(r.series, fmt)
-                                val take = if (range == ChartRange.ONE_MONTH) 22 else 66
-                                points.takeLast(take)
-                            }
-                        }
-                    }
+                    // Otherwise just try the next provider in the chain.
                 }
             }
         }
+        return lastError ?: DataResult.Error("All providers failed for $op.", retryable = true)
+    }
 
-    private fun seriesToPoints(
+    private fun looksLikeRateLimit(msg: String?): Boolean {
+        val m = msg?.lowercase() ?: return false
+        return "rate limit" in m || "429" in m || "too many requests" in m ||
+            ("limit" in m && "minute" in m)
+    }
+
+    private fun looksLikeDailyCap(msg: String?): Boolean {
+        val m = msg?.lowercase() ?: return false
+        return ("daily" in m && "limit" in m) || "quota" in m ||
+            ("api" in m && "calls" in m && "day" in m)
+    }
+
+    // --- Per-provider quote fetchers --------------------------------------
+
+    private suspend fun quoteFrom(
+        provider: ApiProvider,
+        symbol: String,
+        s: UserSettings
+    ): Quote = when (provider) {
+        ApiProvider.FINNHUB -> {
+            if (s.finnhubKey.isBlank()) apiError("Finnhub key not set")
+            val q = finnhub.quote(symbol, s.finnhubKey)
+            if (q.current == null || q.current == 0.0) apiError("No quote returned for $symbol")
+            q.toDomain(symbol)
+        }
+        ApiProvider.TWELVE_DATA -> {
+            if (s.twelveDataKey.isBlank()) apiError("Twelve Data key not set")
+            val q = twelveData.quote(symbol, s.twelveDataKey)
+            if (q.status == "error") apiError(q.message ?: "Twelve Data error")
+            q.toDomain() ?: apiError("Unexpected empty response from Twelve Data")
+        }
+        ApiProvider.YAHOO -> {
+            val env = yahooFinance.chart(symbol, interval = "1d", range = "5d")
+            env.chart?.error?.description?.let { apiError(it) }
+            val r = env.chart?.result?.firstOrNull()
+                ?: apiError("No quote returned for $symbol")
+            r.toQuote(symbol)
+        }
+        ApiProvider.ALPHA_VANTAGE -> {
+            if (s.alphaVantageKey.isBlank()) apiError("Alpha Vantage key not set")
+            val env = alphaVantage.globalQuote(symbol, s.alphaVantageKey)
+            env.note?.let { apiError(it) }
+            env.information?.let { apiError(it) }
+            env.errorMessage?.let { apiError(it) }
+            val q = env.quote ?: apiError("No quote returned for $symbol")
+            val price = q.price?.toDoubleOrNull() ?: apiError("No price for $symbol")
+            Quote(
+                symbol = q.symbol ?: symbol,
+                name = null,
+                price = price,
+                previousClose = q.previousClose?.toDoubleOrNull(),
+                change = q.change?.toDoubleOrNull(),
+                percentChange = q.changePercent?.removeSuffix("%")?.toDoubleOrNull(),
+                open = q.open?.toDoubleOrNull(),
+                high = q.high?.toDoubleOrNull(),
+                low = q.low?.toDoubleOrNull(),
+                volume = q.volume?.toLongOrNull(),
+                marketIsOpen = null,
+                currency = null,
+                fetchedAtMillis = System.currentTimeMillis()
+            )
+        }
+        ApiProvider.AUTO -> apiError("AUTO is not a concrete provider")
+    }
+
+    // --- Per-provider series fetchers -------------------------------------
+
+    private suspend fun seriesFrom(
+        provider: ApiProvider,
+        symbol: String,
+        range: ChartRange,
+        s: UserSettings
+    ): List<PricePoint> = when (provider) {
+        ApiProvider.YAHOO -> {
+            val (interval, yrange) = when (range) {
+                ChartRange.ONE_DAY -> "5m" to "1d"
+                ChartRange.FIVE_DAYS -> "30m" to "5d"
+                ChartRange.ONE_MONTH -> "1d" to "1mo"
+                ChartRange.THREE_MONTHS -> "1d" to "3mo"
+            }
+            val env = yahooFinance.chart(symbol, interval, yrange)
+            env.chart?.error?.description?.let { apiError(it) }
+            val r = env.chart?.result?.firstOrNull()
+                ?: apiError("Yahoo returned no data for $symbol")
+            val closes = r.indicators?.quote?.firstOrNull()?.close ?: emptyList()
+            r.timestamp.zip(closes).mapNotNull { (t, c) ->
+                if (c == null) null else PricePoint(t * 1000L, c)
+            }
+        }
+        ApiProvider.TWELVE_DATA -> {
+            if (s.twelveDataKey.isBlank()) apiError("Twelve Data key not set")
+            val (interval, outputSize) = when (range) {
+                ChartRange.ONE_DAY -> "5min" to 78
+                ChartRange.FIVE_DAYS -> "30min" to 65
+                ChartRange.ONE_MONTH -> "1day" to 30
+                ChartRange.THREE_MONTHS -> "1day" to 90
+            }
+            val r = twelveData.timeSeries(symbol, interval, outputSize, s.twelveDataKey)
+            if (r.status == "error") apiError(r.message ?: "Twelve Data error")
+            val fmt = if (interval == "1day")
+                SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            else
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            fmt.timeZone = TimeZone.getTimeZone("UTC")
+            r.values.asReversed().mapNotNull { c ->
+                val close = c.close?.toDoubleOrNull() ?: return@mapNotNull null
+                val t = runCatching { fmt.parse(c.datetime)?.time }.getOrNull()
+                    ?: return@mapNotNull null
+                PricePoint(t, close)
+            }
+        }
+        ApiProvider.ALPHA_VANTAGE -> {
+            if (s.alphaVantageKey.isBlank()) apiError("Alpha Vantage key not set")
+            when (range) {
+                ChartRange.ONE_DAY, ChartRange.FIVE_DAYS -> {
+                    val interval = if (range == ChartRange.ONE_DAY) "5min" else "30min"
+                    val r = alphaVantage.intraday(symbol, interval, "compact", s.alphaVantageKey)
+                    r.note?.let { apiError(it) }
+                    r.information?.let { apiError(it) }
+                    r.errorMessage?.let { apiError(it) }
+                    val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+                    fmt.timeZone = TimeZone.getTimeZone("UTC")
+                    alphaSeriesToPoints(r.series(), fmt)
+                }
+                ChartRange.ONE_MONTH, ChartRange.THREE_MONTHS -> {
+                    val r = alphaVantage.daily(symbol, "compact", s.alphaVantageKey)
+                    r.note?.let { apiError(it) }
+                    r.information?.let { apiError(it) }
+                    r.errorMessage?.let { apiError(it) }
+                    val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                    fmt.timeZone = TimeZone.getTimeZone("UTC")
+                    val points = alphaSeriesToPoints(r.series, fmt)
+                    val take = if (range == ChartRange.ONE_MONTH) 22 else 66
+                    points.takeLast(take)
+                }
+            }
+        }
+        ApiProvider.FINNHUB -> apiError("Finnhub candles are premium on the free tier")
+        ApiProvider.AUTO -> apiError("AUTO is not a concrete provider")
+    }
+
+    // --- Per-provider symbol search ---------------------------------------
+
+    private suspend fun searchFrom(
+        provider: ApiProvider,
+        query: String,
+        s: UserSettings
+    ): List<SymbolMatch> = when (provider) {
+        ApiProvider.YAHOO -> {
+            val r = yahooFinance.search(query)
+            r.quotes.mapNotNull { q ->
+                q.symbol?.let {
+                    SymbolMatch(
+                        symbol = it,
+                        name = q.longname ?: q.shortname,
+                        exchange = q.exchange,
+                        type = q.typeDisp ?: q.quoteType
+                    )
+                }
+            }
+        }
+        ApiProvider.FINNHUB -> {
+            if (s.finnhubKey.isBlank()) apiError("Finnhub key not set")
+            val r = finnhub.search(query, s.finnhubKey)
+            r.result.map {
+                SymbolMatch(
+                    symbol = it.displaySymbol ?: it.symbol,
+                    name = it.description,
+                    exchange = null,
+                    type = it.type
+                )
+            }
+        }
+        ApiProvider.TWELVE_DATA -> {
+            val r = twelveData.search(query)
+            r.data.map {
+                SymbolMatch(
+                    symbol = it.symbol,
+                    name = it.instrument_name,
+                    exchange = it.exchange,
+                    type = it.instrumentType
+                )
+            }
+        }
+        ApiProvider.ALPHA_VANTAGE -> {
+            if (s.alphaVantageKey.isBlank()) apiError("Alpha Vantage key not set")
+            val r = alphaVantage.search(query, s.alphaVantageKey)
+            r.note?.let { apiError(it) }
+            r.information?.let { apiError(it) }
+            r.bestMatches.mapNotNull { m ->
+                m.symbol?.let {
+                    SymbolMatch(
+                        symbol = it,
+                        name = m.name,
+                        exchange = m.region,
+                        type = m.type
+                    )
+                }
+            }
+        }
+        ApiProvider.AUTO -> apiError("AUTO is not a concrete provider")
+    }
+
+    // --- Domain mapping helpers -------------------------------------------
+
+    private fun alphaSeriesToPoints(
         map: Map<String, AlphaCandle>?,
         fmt: SimpleDateFormat
     ): List<PricePoint> {
@@ -163,50 +382,6 @@ class MarketDataRepository(
                 PricePoint(t, close)
             }
             .sortedBy { it.timestampMillis }
-    }
-
-    private suspend fun fetchQuote(symbol: String): DataResult<Quote> = withContext(Dispatchers.IO) {
-        val s = settings.settings.first()
-        if (s.activeKey.isBlank()) {
-            return@withContext DataResult.Error(
-                "No API key set for ${s.provider.name}. Add one in Settings.",
-                retryable = false
-            )
-        }
-        runCatchingApi {
-            when (s.provider) {
-                ApiProvider.TWELVE_DATA -> {
-                    val q = twelveData.quote(symbol, s.activeKey)
-                    if (q.status == "error") return@runCatchingApi error(q.message ?: "API error")
-                    q.toDomain() ?: return@runCatchingApi error("Unexpected empty response")
-                }
-                ApiProvider.ALPHA_VANTAGE -> {
-                    val env = alphaVantage.globalQuote(symbol, s.activeKey)
-                    env.note?.let { return@runCatchingApi error(it) }
-                    env.information?.let { return@runCatchingApi error(it) }
-                    env.errorMessage?.let { return@runCatchingApi error(it) }
-                    val q = env.quote
-                        ?: return@runCatchingApi error("No quote returned for $symbol")
-                    val price = q.price?.toDoubleOrNull()
-                        ?: return@runCatchingApi error("No price returned for $symbol")
-                    Quote(
-                        symbol = q.symbol ?: symbol,
-                        name = null,
-                        price = price,
-                        previousClose = q.previousClose?.toDoubleOrNull(),
-                        change = q.change?.toDoubleOrNull(),
-                        percentChange = q.changePercent?.removeSuffix("%")?.toDoubleOrNull(),
-                        open = q.open?.toDoubleOrNull(),
-                        high = q.high?.toDoubleOrNull(),
-                        low = q.low?.toDoubleOrNull(),
-                        volume = q.volume?.toLongOrNull(),
-                        marketIsOpen = null,
-                        currency = null,
-                        fetchedAtMillis = System.currentTimeMillis()
-                    )
-                }
-            }
-        }
     }
 
     private fun TwelveQuote.toDomain(): Quote? {
@@ -224,6 +399,45 @@ class MarketDataRepository(
             volume = volume?.toLongOrNull(),
             marketIsOpen = is_market_open,
             currency = currency,
+            fetchedAtMillis = System.currentTimeMillis()
+        )
+    }
+
+    private fun FinnhubQuote.toDomain(symbol: String): Quote = Quote(
+        symbol = symbol,
+        name = null,
+        price = current ?: 0.0,
+        previousClose = previousClose,
+        change = change,
+        percentChange = percentChange,
+        open = open,
+        high = high,
+        low = low,
+        volume = null,
+        marketIsOpen = null,
+        currency = "USD",
+        fetchedAtMillis = System.currentTimeMillis()
+    )
+
+    private fun YahooChartResult.toQuote(symbol: String): Quote {
+        val m = meta
+        val price = m?.regularMarketPrice ?: apiError("Yahoo returned no price for $symbol")
+        val prev = m.previousClose ?: m.chartPreviousClose
+        val change = prev?.let { price - it }
+        val percent = if (prev != null && prev != 0.0) (price - prev) / prev * 100.0 else null
+        return Quote(
+            symbol = m.symbol ?: symbol,
+            name = m.longName ?: m.shortName,
+            price = price,
+            previousClose = prev,
+            change = change,
+            percentChange = percent,
+            open = null,
+            high = m.regularMarketDayHigh,
+            low = m.regularMarketDayLow,
+            volume = m.regularMarketVolume,
+            marketIsOpen = null,
+            currency = m.currency,
             fetchedAtMillis = System.currentTimeMillis()
         )
     }
@@ -276,7 +490,7 @@ class MarketDataRepository(
         DataResult.Error(e.message ?: "Unknown error.", retryable = true)
     }
 
-    private fun error(msg: String): Nothing = throw ApiException(msg, retryable = true)
+    private fun apiError(msg: String): Nothing = throw ApiException(msg, retryable = true)
 
     private class ApiException(msg: String, val retryable: Boolean) : RuntimeException(msg)
 }

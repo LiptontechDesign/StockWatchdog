@@ -3,8 +3,11 @@ package com.stockwatchdog.app.di
 import android.content.Context
 import androidx.room.Room
 import com.stockwatchdog.app.data.api.AlphaVantageApi
+import com.stockwatchdog.app.data.api.FinnhubApi
 import com.stockwatchdog.app.data.api.MarketDataRepository
+import com.stockwatchdog.app.data.api.ProviderCooldown
 import com.stockwatchdog.app.data.api.TwelveDataApi
+import com.stockwatchdog.app.data.api.YahooFinanceApi
 import com.stockwatchdog.app.data.db.AppDatabase
 import com.stockwatchdog.app.data.prefs.SettingsRepository
 import kotlinx.serialization.json.Json
@@ -58,6 +61,22 @@ class AppContainer(private val context: Context) {
         .build()
         .create(AlphaVantageApi::class.java)
 
+    private val finnhub: FinnhubApi = Retrofit.Builder()
+        .baseUrl("https://finnhub.io/api/v1/")
+        .client(httpClient)
+        .addConverterFactory(converter)
+        .build()
+        .create(FinnhubApi::class.java)
+
+    private val yahooFinance: YahooFinanceApi = Retrofit.Builder()
+        .baseUrl("https://query1.finance.yahoo.com/")
+        .client(httpClient)
+        .addConverterFactory(converter)
+        .build()
+        .create(YahooFinanceApi::class.java)
+
+    private val providerCooldown: ProviderCooldown = ProviderCooldown()
+
     val database: AppDatabase = Room.databaseBuilder(
         context.applicationContext,
         AppDatabase::class.java,
@@ -72,7 +91,10 @@ class AppContainer(private val context: Context) {
     val marketDataRepository: MarketDataRepository = MarketDataRepository(
         twelveData = twelveData,
         alphaVantage = alphaVantage,
+        finnhub = finnhub,
+        yahooFinance = yahooFinance,
         settings = settingsRepository,
-        priceCacheDao = database.priceCacheDao()
+        priceCacheDao = database.priceCacheDao(),
+        cooldown = providerCooldown
     )
 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -51,8 +52,10 @@ fun SettingsScreen(container: AppContainer) {
     val s by vm.state.collectAsStateWithLifecycle()
     var editingTwelve by rememberSaveable { mutableStateOf(false) }
     var editingAlpha by rememberSaveable { mutableStateOf(false) }
+    var editingFinnhub by rememberSaveable { mutableStateOf(false) }
     var twelveDraft by rememberSaveable { mutableStateOf("") }
     var alphaDraft by rememberSaveable { mutableStateOf("") }
+    var finnhubDraft by rememberSaveable { mutableStateOf("") }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Settings", fontWeight = FontWeight.SemiBold) }) }
@@ -65,11 +68,39 @@ fun SettingsScreen(container: AppContainer) {
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             SectionHeader("Data provider")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Auto rotates between Finnhub, Twelve Data, Yahoo Finance and " +
+                    "Alpha Vantage so you never hit a rate-limit dead end. Pick a " +
+                    "single provider only if you want to force one.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                FilterChip(
+                    selected = s.provider == ApiProvider.AUTO,
+                    onClick = { vm.setProvider(ApiProvider.AUTO) },
+                    label = { Text("Auto") }
+                )
+                FilterChip(
+                    selected = s.provider == ApiProvider.FINNHUB,
+                    onClick = { vm.setProvider(ApiProvider.FINNHUB) },
+                    label = { Text("Finnhub") }
+                )
                 FilterChip(
                     selected = s.provider == ApiProvider.TWELVE_DATA,
                     onClick = { vm.setProvider(ApiProvider.TWELVE_DATA) },
                     label = { Text("Twelve Data") }
+                )
+                FilterChip(
+                    selected = s.provider == ApiProvider.YAHOO,
+                    onClick = { vm.setProvider(ApiProvider.YAHOO) },
+                    label = { Text("Yahoo") }
                 )
                 FilterChip(
                     selected = s.provider == ApiProvider.ALPHA_VANTAGE,
@@ -78,6 +109,27 @@ fun SettingsScreen(container: AppContainer) {
                 )
             }
             Spacer(Modifier.height(12.dp))
+            ApiKeySetting(
+                label = "Finnhub API key",
+                hasSavedValue = s.finnhubKey.isNotBlank(),
+                isEditing = editingFinnhub,
+                draftValue = finnhubDraft,
+                onOpenEditor = {
+                    editingFinnhub = true
+                    finnhubDraft = ""
+                },
+                onDraftChange = { finnhubDraft = it },
+                onApply = {
+                    vm.setFinnhubKey(finnhubDraft)
+                    finnhubDraft = ""
+                    editingFinnhub = false
+                },
+                onCancel = {
+                    finnhubDraft = ""
+                    editingFinnhub = false
+                }
+            )
+            Spacer(Modifier.height(8.dp))
             ApiKeySetting(
                 label = "Twelve Data API key",
                 hasSavedValue = s.twelveDataKey.isNotBlank(),
@@ -118,6 +170,13 @@ fun SettingsScreen(container: AppContainer) {
                     alphaDraft = ""
                     editingAlpha = false
                 }
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Yahoo Finance is used as a no-key backup when keyed providers " +
+                    "are rate-limited.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(Modifier.height(16.dp))

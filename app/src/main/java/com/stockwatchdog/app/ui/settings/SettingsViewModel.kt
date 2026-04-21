@@ -27,6 +27,7 @@ class SettingsViewModel(
     fun setProvider(p: ApiProvider) = viewModelScope.launch { repo.setProvider(p) }
     fun setTwelveKey(k: String) = viewModelScope.launch { repo.setTwelveDataKey(k) }
     fun setAlphaKey(k: String) = viewModelScope.launch { repo.setAlphaVantageKey(k) }
+    fun setFinnhubKey(k: String) = viewModelScope.launch { repo.setFinnhubKey(k) }
 
     fun setInterval(minutes: Int) = viewModelScope.launch {
         repo.setIntervalMinutes(minutes)
