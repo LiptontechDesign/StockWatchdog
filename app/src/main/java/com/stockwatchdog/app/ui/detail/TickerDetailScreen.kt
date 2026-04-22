@@ -59,6 +59,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.AlertType
+import com.stockwatchdog.app.data.db.entities.PositionLotEntity
 import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.domain.ChartRange
 import com.stockwatchdog.app.domain.PositionCalculator
