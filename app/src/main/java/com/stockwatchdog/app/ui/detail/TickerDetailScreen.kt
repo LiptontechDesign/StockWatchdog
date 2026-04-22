@@ -84,7 +84,8 @@ fun TickerDetailScreen(
                     symbol = symbol,
                     repo = container.marketDataRepository,
                     watchlistDao = container.database.watchlistDao(),
-                    alertDao = container.database.alertDao()
+                    alertDao = container.database.alertDao(),
+                    positionLotDao = container.database.positionLotDao()
                 )
             }
         }
@@ -179,7 +180,9 @@ fun TickerDetailScreen(
                 when (selectedTab) {
                     0 -> PositionSection(
                         state = state,
-                        onEdit = { vm.openEditPosition() }
+                        onAddLot = { vm.openAddLot() },
+                        onEditLot = { id -> vm.openEditLot(id) },
+                        onDeleteLot = { id -> vm.confirmDeleteLot(id) }
                     )
                     1 -> AlertsSection(
                         alerts = alerts,
@@ -197,7 +200,7 @@ fun TickerDetailScreen(
         CreateAlertDialog(
             type = state.newAlertType,
             threshold = state.newAlertThreshold,
-            hasEntryPrice = state.entryPrice != null,
+            hasEntryPrice = state.avgEntryPrice != null,
             onTypeChange = vm::onAlertTypeChange,
             onThresholdChange = vm::onAlertThresholdChange,
             onSave = { vm.saveAlert() },
@@ -205,17 +208,34 @@ fun TickerDetailScreen(
         )
     }
 
-    if (state.editPositionOpen) {
+    if (state.lotDialogOpen) {
         EditPositionDialog(
-            entryPriceDraft = state.entryPriceDraft,
-            quantityDraft = state.quantityDraft,
-            notesDraft = state.notesDraft,
-            onEntryChange = vm::onEntryPriceDraftChange,
-            onQtyChange = vm::onQuantityDraftChange,
-            onNotesChange = vm::onNotesDraftChange,
-            onSave = { vm.savePosition() },
-            onClear = { vm.clearPosition() },
-            onDismiss = { vm.closeEditPosition() }
+            entryPriceDraft = state.lotDialogPriceDraft,
+            amountInvestedDraft = state.lotDialogAmountDraft,
+            isEditing = state.lotDialogEditingId != null,
+            onEntryChange = vm::onLotPriceDraftChange,
+            onAmountChange = vm::onLotAmountDraftChange,
+            onSave = { vm.saveLot() },
+            onDismiss = { vm.closeLotDialog() }
+        )
+    }
+
+    state.lotDeleteConfirmId?.let { lotId ->
+        AlertDialog(
+            onDismissRequest = { vm.cancelDeleteLot() },
+            title = { Text("Delete this position?") },
+            text = {
+                Text(
+                    "This will remove the entry point and its invested amount. " +
+                        "This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.deleteLot(lotId) }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.cancelDeleteLot() }) { Text("Cancel") }
+            }
         )
     }
 }
@@ -425,13 +445,16 @@ private fun AlertRow(
 @Composable
 private fun PositionSection(
     state: DetailUiState,
-    onEdit: () -> Unit
+    onAddLot: () -> Unit,
+    onEditLot: (Long) -> Unit,
+    onDeleteLot: (Long) -> Unit
 ) {
     val pnl = PositionCalculator.calculate(
         currentPrice = state.quote?.price,
-        entryPrice = state.entryPrice,
-        quantity = state.quantity
+        lots = state.lots
     )
+    val lotPnlById = pnl.perLot.associateBy { it.lotId }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -451,76 +474,66 @@ private fun PositionSection(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
-                TextButton(onClick = onEdit) {
-                    Text(if (state.entryPrice == null) "Add position" else "Edit")
+                TextButton(onClick = onAddLot) {
+                    Text(if (state.lots.isEmpty()) "Add position" else "Add another")
                 }
             }
 
-            if (state.entryPrice == null) {
+            if (state.lots.isEmpty()) {
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "Add your entry price to see P&L and unlock Gain/Loss vs entry alerts.",
+                    "Add your entry point and the amount you invested to track " +
+                        "total gain/loss and unlock gain/loss alerts.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
                 Spacer(Modifier.height(6.dp))
                 SummaryRow(
-                    "Entry price", formatPrice(state.entryPrice),
-                    "Quantity", state.quantity?.let { formatQuantity(it) } ?: "—"
+                    "Total invested", formatPrice(pnl.totalInvested),
+                    "Current value", formatPrice(pnl.positionValue)
                 )
                 Spacer(Modifier.height(8.dp))
-
-                val perShareText = pnl.perSharePnl?.let { formatSignedChange(it) } ?: "—"
-                val pctText = formatSignedPercent(pnl.percentPnl)
                 Row(Modifier.fillMaxWidth()) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            "Since entry",
+                            "Total P&L",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            "$perShareText ($pctText)",
+                            formatSignedChange(pnl.totalPnl),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = changeColor(pnl.totalPnl)
+                        )
+                    }
+                    Column(
+                        Modifier.weight(1f),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Text(
+                            "Return",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            formatSignedPercent(pnl.percentPnl),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = changeColor(pnl.percentPnl)
                         )
                     }
-                    if (pnl.totalPnl != null) {
-                        Column(
-                            Modifier.weight(1f),
-                            horizontalAlignment = Alignment.End
-                        ) {
-                            Text(
-                                "Total P&L",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                formatSignedChange(pnl.totalPnl),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                color = changeColor(pnl.totalPnl)
-                            )
-                        }
-                    }
                 }
 
-                if (pnl.positionValue != null || pnl.costBasis != null) {
-                    Spacer(Modifier.height(8.dp))
-                    SummaryRow(
-                        "Position value", formatPrice(pnl.positionValue),
-                        "Cost basis", formatPrice(pnl.costBasis)
-                    )
-                }
-
-                if (!state.notes.isNullOrBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        state.notes,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                state.lots.forEachIndexed { index, lot ->
+                    Spacer(Modifier.height(12.dp))
+                    LotCard(
+                        title = "Position ${index + 1}",
+                        lot = lot,
+                        pnl = lotPnlById[lot.id],
+                        onEdit = { onEditLot(lot.id) },
+                        onDelete = { onDeleteLot(lot.id) }
                     )
                 }
             }
@@ -528,56 +541,120 @@ private fun PositionSection(
     }
 }
 
-private fun formatQuantity(q: Double): String =
-    if (q % 1.0 == 0.0) "%.0f".format(q) else "%.4f".format(q).trimEnd('0').trimEnd('.')
+@Composable
+private fun LotCard(
+    title: String,
+    lot: PositionLotEntity,
+    pnl: com.stockwatchdog.app.domain.LotPnl?,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row {
+                    TextButton(onClick = onEdit) { Text("Edit") }
+                    TextButton(
+                        onClick = onDelete,
+                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) { Text("Delete") }
+                }
+            }
+            SummaryRow(
+                "Entry point", formatPrice(lot.entryPrice),
+                "Amount invested", formatPrice(lot.amountInvested)
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Since entry",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        formatSignedChange(pnl?.pnl),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = changeColor(pnl?.pnl)
+                    )
+                }
+                Column(
+                    Modifier.weight(1f),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    Text(
+                        "Return",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        formatSignedPercent(pnl?.percentPnl),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = changeColor(pnl?.percentPnl)
+                    )
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditPositionDialog(
     entryPriceDraft: String,
-    quantityDraft: String,
-    notesDraft: String,
+    amountInvestedDraft: String,
+    isEditing: Boolean,
     onEntryChange: (String) -> Unit,
-    onQtyChange: (String) -> Unit,
-    onNotesChange: (String) -> Unit,
+    onAmountChange: (String) -> Unit,
     onSave: () -> Unit,
-    onClear: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val entryOk = entryPriceDraft.replace(",", ".").toDoubleOrNull()?.let { it > 0 } == true
+    val amountOk = amountInvestedDraft.replace(",", ".").toDoubleOrNull()?.let { it > 0 } == true
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Your position") },
+        title = { Text(if (isEditing) "Edit position" else "Add position") },
         text = {
             Column {
                 OutlinedTextField(
                     value = entryPriceDraft,
                     onValueChange = onEntryChange,
-                    label = { Text("Entry price (required)") },
+                    label = { Text("Entry point") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = quantityDraft,
-                    onValueChange = onQtyChange,
-                    label = { Text("Quantity (optional)") },
+                    value = amountInvestedDraft,
+                    onValueChange = onAmountChange,
+                    label = { Text("Amount invested") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = notesDraft,
-                    onValueChange = onNotesChange,
-                    label = { Text("Note (optional)") },
-                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Entry price and quantity support decimals. Leave quantity " +
-                        "blank if you only want % vs entry.",
+                    "Enter the price per share you bought at and the total amount " +
+                        "invested at this entry. Add another position later if you buy more.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -586,14 +663,11 @@ private fun EditPositionDialog(
         confirmButton = {
             TextButton(
                 onClick = onSave,
-                enabled = entryPriceDraft.replace(",", ".").toDoubleOrNull()?.let { it > 0 } == true
+                enabled = entryOk && amountOk
             ) { Text("Save") }
         },
         dismissButton = {
-            Row {
-                TextButton(onClick = onClear) { Text("Clear") }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
 }

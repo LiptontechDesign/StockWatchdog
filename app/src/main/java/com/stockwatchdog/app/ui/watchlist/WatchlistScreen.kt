@@ -70,6 +70,7 @@ fun WatchlistScreen(
             initializer {
                 WatchlistViewModel(
                     dao = container.database.watchlistDao(),
+                    positionLotDao = container.database.positionLotDao(),
                     repo = container.marketDataRepository,
                     container = container
                 )

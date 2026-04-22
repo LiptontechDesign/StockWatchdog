@@ -29,13 +29,23 @@ class AlertCheckWorker(
 
         val alertDao = container.database.alertDao()
         val watchlistDao = container.database.watchlistDao()
+        val positionLotDao = container.database.positionLotDao()
         val enabled = alertDao.getAllEnabled()
         if (enabled.isEmpty()) return Result.success()
 
         val symbols = enabled.map { it.symbol }.distinct()
         val results = container.marketDataRepository.refreshQuotes(symbols)
         val entryPrices: Map<String, Double?> = symbols.associateWith { sym ->
-            watchlistDao.getBySymbol(sym)?.entryPrice
+            // Prefer the new multi-lot position: use the weighted average
+            // entry. Fall back to the legacy watchlist.entryPrice field for
+            // users who haven't migrated their tracked position yet.
+            val lots = positionLotDao.getBySymbol(sym)
+            val totalInvested = lots.sumOf { it.amountInvested }
+            val totalQty = lots.sumOf {
+                if (it.entryPrice > 0) it.amountInvested / it.entryPrice else 0.0
+            }
+            if (totalQty > 0) totalInvested / totalQty
+            else watchlistDao.getBySymbol(sym)?.entryPrice
         }
 
         var notifId = (System.currentTimeMillis() and 0x7fffffff).toInt()

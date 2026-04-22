@@ -3,7 +3,9 @@ package com.stockwatchdog.app.ui.watchlist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stockwatchdog.app.data.api.MarketDataRepository
+import com.stockwatchdog.app.data.db.PositionLotDao
 import com.stockwatchdog.app.data.db.WatchlistDao
+import com.stockwatchdog.app.data.db.entities.PositionLotEntity
 import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
 import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.domain.DataResult
@@ -23,7 +25,9 @@ data class WatchRow(
     val symbol: String,
     val name: String?,
     val quote: Quote?,
+    /** Weighted-average entry across this ticker's lots, or legacy single entry. */
     val entryPrice: Double? = null,
+    /** Derived quantity (sum of amountInvested / entryPrice across lots). */
     val quantity: Double? = null,
     val error: String? = null
 )
@@ -41,6 +45,7 @@ data class WatchlistUiState(
 
 class WatchlistViewModel(
     private val dao: WatchlistDao,
+    private val positionLotDao: PositionLotDao,
     private val repo: MarketDataRepository,
     private val container: AppContainer
 ) : ViewModel() {
@@ -53,18 +58,33 @@ class WatchlistViewModel(
     val items: StateFlow<List<WatchlistItemEntity>> =
         dao.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val lots: StateFlow<List<PositionLotEntity>> =
+        positionLotDao.observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private var searchJob: Job? = null
 
     init {
         viewModelScope.launch {
-            combine(items, quoteCache) { list, cache ->
+            combine(items, quoteCache, lots) { list, cache, allLots ->
+                val lotsBySymbol = allLots.groupBy { it.symbol }
                 list.map { e ->
                     val base = cache[e.symbol]
                         ?: WatchRow(symbol = e.symbol, name = e.name, quote = null)
+                    val symbolLots = lotsBySymbol[e.symbol].orEmpty()
+                    val (avgEntry, totalQty) = if (symbolLots.isNotEmpty()) {
+                        val invested = symbolLots.sumOf { it.amountInvested }
+                        val qty = symbolLots.sumOf {
+                            if (it.entryPrice > 0) it.amountInvested / it.entryPrice else 0.0
+                        }
+                        val avg = if (qty > 0) invested / qty else null
+                        avg to qty.takeIf { it > 0 }
+                    } else {
+                        e.entryPrice to e.quantity
+                    }
                     base.copy(
                         name = base.name ?: e.name,
-                        entryPrice = e.entryPrice,
-                        quantity = e.quantity
+                        entryPrice = avgEntry,
+                        quantity = totalQty
                     )
                 }
             }.collect { rows ->

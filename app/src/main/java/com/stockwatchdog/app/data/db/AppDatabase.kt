@@ -7,6 +7,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.Converters
+import com.stockwatchdog.app.data.db.entities.PositionLotEntity
 import com.stockwatchdog.app.data.db.entities.PriceCacheEntity
 import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
 
@@ -14,9 +15,10 @@ import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
     entities = [
         WatchlistItemEntity::class,
         AlertEntity::class,
-        PriceCacheEntity::class
+        PriceCacheEntity::class,
+        PositionLotEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -24,6 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun watchlistDao(): WatchlistDao
     abstract fun alertDao(): AlertDao
     abstract fun priceCacheDao(): PriceCacheDao
+    abstract fun positionLotDao(): PositionLotDao
 
     companion object {
         /** v1 → v2: add manual entry-position fields to the watchlist table. */
@@ -32,6 +35,52 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE watchlist ADD COLUMN entryPrice REAL")
                 db.execSQL("ALTER TABLE watchlist ADD COLUMN quantity REAL")
                 db.execSQL("ALTER TABLE watchlist ADD COLUMN notes TEXT")
+            }
+        }
+
+        /**
+         * v2 → v3: introduce the `position_lots` table so users can record
+         * multiple entry points per ticker. Existing single-entry rows in
+         * `watchlist` are seeded as a single "Position 1" lot. The legacy
+         * entryPrice/quantity columns stay on the watchlist table (read-only,
+         * unused by new code) so old clients and alerts keep working without
+         * a destructive rewrite.
+         */
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS position_lots (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        entryPrice REAL NOT NULL,
+                        amountInvested REAL NOT NULL,
+                        addedAtMillis INTEGER NOT NULL,
+                        FOREIGN KEY(symbol) REFERENCES watchlist(symbol)
+                            ON UPDATE CASCADE ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_position_lots_symbol " +
+                        "ON position_lots(symbol)"
+                )
+                // Seed lots from any existing manual entry prices. Users who
+                // never set a quantity get amountInvested = entryPrice so the
+                // percentage P/L continues to work; the dollar total will be
+                // small but accurate for what they originally entered.
+                db.execSQL(
+                    """
+                    INSERT INTO position_lots
+                        (symbol, entryPrice, amountInvested, addedAtMillis)
+                    SELECT symbol,
+                           entryPrice,
+                           entryPrice * COALESCE(quantity, 1.0),
+                           addedAtMillis
+                    FROM watchlist
+                    WHERE entryPrice IS NOT NULL AND entryPrice > 0
+                    """.trimIndent()
+                )
             }
         }
     }

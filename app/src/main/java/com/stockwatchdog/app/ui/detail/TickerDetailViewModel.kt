@@ -4,9 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stockwatchdog.app.data.api.MarketDataRepository
 import com.stockwatchdog.app.data.db.AlertDao
+import com.stockwatchdog.app.data.db.PositionLotDao
 import com.stockwatchdog.app.data.db.WatchlistDao
 import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.AlertType
+import com.stockwatchdog.app.data.db.entities.PositionLotEntity
 import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
 import com.stockwatchdog.app.domain.ChartRange
 import com.stockwatchdog.app.domain.DataResult
@@ -30,23 +32,28 @@ data class DetailUiState(
     val chartLoading: Boolean = false,
     val chartError: String? = null,
     val inWatchlist: Boolean = false,
-    val entryPrice: Double? = null,
-    val quantity: Double? = null,
-    val notes: String? = null,
+    /** All recorded buys for this ticker, oldest first. */
+    val lots: List<PositionLotEntity> = emptyList(),
+    /** Weighted-average entry across all lots. Used for "% vs entry" alerts. */
+    val avgEntryPrice: Double? = null,
     val createAlertOpen: Boolean = false,
     val newAlertType: AlertType = AlertType.PRICE_ABOVE,
     val newAlertThreshold: String = "",
-    val editPositionOpen: Boolean = false,
-    val entryPriceDraft: String = "",
-    val quantityDraft: String = "",
-    val notesDraft: String = ""
+    /** Add/edit lot dialog state. `editingLotId == null` means adding a new lot. */
+    val lotDialogOpen: Boolean = false,
+    val lotDialogEditingId: Long? = null,
+    val lotDialogPriceDraft: String = "",
+    val lotDialogAmountDraft: String = "",
+    /** Confirm-delete: id of the lot waiting on user confirmation, or null. */
+    val lotDeleteConfirmId: Long? = null
 )
 
 class TickerDetailViewModel(
     private val symbol: String,
     private val repo: MarketDataRepository,
     private val watchlistDao: WatchlistDao,
-    private val alertDao: AlertDao
+    private val alertDao: AlertDao,
+    private val positionLotDao: PositionLotDao
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(DetailUiState(symbol = symbol))
@@ -61,16 +68,22 @@ class TickerDetailViewModel(
         viewModelScope.launch { loadChart(ChartRange.ONE_DAY) }
         viewModelScope.launch {
             watchlistDao.observeBySymbol(symbol).collect { entity ->
-                _ui.update {
-                    it.copy(
-                        inWatchlist = entity != null,
-                        entryPrice = entity?.entryPrice,
-                        quantity = entity?.quantity,
-                        notes = entity?.notes
-                    )
-                }
+                _ui.update { it.copy(inWatchlist = entity != null) }
             }
         }
+        viewModelScope.launch {
+            positionLotDao.observeBySymbol(symbol).collect { lots ->
+                _ui.update { it.copy(lots = lots, avgEntryPrice = weightedAvgEntry(lots)) }
+            }
+        }
+    }
+
+    private fun weightedAvgEntry(lots: List<PositionLotEntity>): Double? {
+        val invested = lots.sumOf { it.amountInvested }
+        val qty = lots.sumOf {
+            if (it.entryPrice > 0) it.amountInvested / it.entryPrice else 0.0
+        }
+        return if (qty > 0) invested / qty else null
     }
 
     fun refresh(force: Boolean = true) {
@@ -141,7 +154,7 @@ class TickerDetailViewModel(
         val threshold = s.newAlertThreshold.replace(",", ".").toDoubleOrNull() ?: return
         viewModelScope.launch {
             val initialState = _ui.value.quote?.let { q ->
-                val entry = _ui.value.entryPrice
+                val entry = _ui.value.avgEntryPrice
                 when (s.newAlertType) {
                     AlertType.PRICE_ABOVE -> q.price > threshold
                     AlertType.PRICE_BELOW -> q.price < threshold
@@ -178,31 +191,51 @@ class TickerDetailViewModel(
 
     fun deleteAlert(id: Long) = viewModelScope.launch { alertDao.delete(id) }
 
-    // ---------- Position (entry price / quantity / notes) ----------
+    // ---------- Position lots (multi-entry) ----------
 
-    fun openEditPosition() = _ui.update {
+    /** Open the dialog for adding a brand-new lot. */
+    fun openAddLot() = _ui.update {
         it.copy(
-            editPositionOpen = true,
-            entryPriceDraft = it.entryPrice?.let { v -> trimmed(v) } ?: "",
-            quantityDraft = it.quantity?.let { v -> trimmed(v) } ?: "",
-            notesDraft = it.notes.orEmpty()
+            lotDialogOpen = true,
+            lotDialogEditingId = null,
+            lotDialogPriceDraft = "",
+            lotDialogAmountDraft = ""
         )
     }
 
-    fun closeEditPosition() = _ui.update { it.copy(editPositionOpen = false) }
+    /** Open the dialog pre-filled with an existing lot's values for editing. */
+    fun openEditLot(lotId: Long) {
+        val lot = _ui.value.lots.firstOrNull { it.id == lotId } ?: return
+        _ui.update {
+            it.copy(
+                lotDialogOpen = true,
+                lotDialogEditingId = lotId,
+                lotDialogPriceDraft = trimmed(lot.entryPrice),
+                lotDialogAmountDraft = trimmed(lot.amountInvested)
+            )
+        }
+    }
 
-    fun onEntryPriceDraftChange(v: String) = _ui.update { it.copy(entryPriceDraft = v) }
-    fun onQuantityDraftChange(v: String) = _ui.update { it.copy(quantityDraft = v) }
-    fun onNotesDraftChange(v: String) = _ui.update { it.copy(notesDraft = v) }
+    fun closeLotDialog() = _ui.update {
+        it.copy(
+            lotDialogOpen = false,
+            lotDialogEditingId = null,
+            lotDialogPriceDraft = "",
+            lotDialogAmountDraft = ""
+        )
+    }
 
-    fun savePosition() {
+    fun onLotPriceDraftChange(v: String) = _ui.update { it.copy(lotDialogPriceDraft = v) }
+    fun onLotAmountDraftChange(v: String) = _ui.update { it.copy(lotDialogAmountDraft = v) }
+
+    /** Create or update the lot currently in the dialog. */
+    fun saveLot() {
         val s = _ui.value
-        val entry = parseDecimal(s.entryPriceDraft)
-        val qty = parseDecimal(s.quantityDraft)
-        val notes = s.notesDraft.trim().ifBlank { null }
+        val entry = parseDecimal(s.lotDialogPriceDraft) ?: return
+        val amount = parseDecimal(s.lotDialogAmountDraft) ?: return
+        if (entry <= 0.0 || amount <= 0.0) return
         viewModelScope.launch {
-            // If this symbol isn't in the watchlist yet, add it first so the
-            // position info has a row to attach to.
+            // Ensure a watchlist row exists so the FK on position_lots resolves.
             if (watchlistDao.getBySymbol(symbol) == null) {
                 val position = watchlistDao.count()
                 watchlistDao.upsert(
@@ -213,22 +246,43 @@ class TickerDetailViewModel(
                     )
                 )
             }
-            watchlistDao.updateEntryInfo(symbol, entry, qty, notes)
-            _ui.update { it.copy(editPositionOpen = false) }
+            val editingId = s.lotDialogEditingId
+            if (editingId == null) {
+                positionLotDao.insert(
+                    PositionLotEntity(
+                        symbol = symbol,
+                        entryPrice = entry,
+                        amountInvested = amount
+                    )
+                )
+            } else {
+                val existing = s.lots.firstOrNull { it.id == editingId }
+                if (existing != null) {
+                    positionLotDao.update(
+                        existing.copy(entryPrice = entry, amountInvested = amount)
+                    )
+                }
+            }
+            _ui.update {
+                it.copy(
+                    lotDialogOpen = false,
+                    lotDialogEditingId = null,
+                    lotDialogPriceDraft = "",
+                    lotDialogAmountDraft = ""
+                )
+            }
         }
     }
 
-    fun clearPosition() {
+    /** Ask the UI to show a confirm dialog before actually deleting a lot. */
+    fun confirmDeleteLot(lotId: Long) = _ui.update { it.copy(lotDeleteConfirmId = lotId) }
+    fun cancelDeleteLot() = _ui.update { it.copy(lotDeleteConfirmId = null) }
+
+    /** Proceed with deletion after the user confirmed. */
+    fun deleteLot(lotId: Long) {
         viewModelScope.launch {
-            watchlistDao.updateEntryInfo(symbol, null, null, null)
-            _ui.update {
-                it.copy(
-                    editPositionOpen = false,
-                    entryPriceDraft = "",
-                    quantityDraft = "",
-                    notesDraft = ""
-                )
-            }
+            positionLotDao.deleteById(lotId)
+            _ui.update { it.copy(lotDeleteConfirmId = null) }
         }
     }
 
