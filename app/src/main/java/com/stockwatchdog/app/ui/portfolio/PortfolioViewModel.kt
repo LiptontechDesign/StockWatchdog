@@ -129,7 +129,7 @@ class PortfolioViewModel(
         val totalInvested = holdings.sumOf { it.totalInvested }
         val allValuesAvailable = holdings.all { it.currentValue != null }
         val totalValue = if (allValuesAvailable) holdings.sumOf { it.currentValue!! } else null
-        val totalPnl = if (totalValue != null) totalValue - totalInvested else null
+        val totalPnl = if (allValuesAvailable) holdings.sumOf { it.pnl ?: 0.0 } else null
         val totalPercentPnl = if (totalPnl != null && totalInvested > 0) {
             totalPnl / totalInvested * 100.0
         } else null
