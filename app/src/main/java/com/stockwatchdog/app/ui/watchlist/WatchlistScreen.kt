@@ -239,10 +239,10 @@ private fun WatchRowItem(
                     quantity = row.quantity,
                     platformFeePercent = platformFeePercent
                 )
+                val label = if (platformFeePercent > 0) "Net " else "vs entry "
                 Text(
-                    (if (platformFeePercent > 0) "net vs entry " else "vs entry ") +
-                        formatSignedPercent(pnl.percentPnl) +
-                        (pnl.totalPnl?.let { " • ${formatSignedChange(it)}" } ?: ""),
+                    label + formatSignedPercent(pnl.percentPnl) +
+                        (pnl.totalPnl?.let { "  (${formatSignedChange(it)})" } ?: ""),
                     style = MaterialTheme.typography.labelSmall,
                     color = changeColor(pnl.percentPnl),
                     maxLines = 1

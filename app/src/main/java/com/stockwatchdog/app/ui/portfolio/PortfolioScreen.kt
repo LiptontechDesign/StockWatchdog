@@ -182,7 +182,7 @@ private fun PortfolioSummaryCard(state: PortfolioUiState) {
             if (state.platformFeePercent > 0) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Net returns include ${"%.2f".format(state.platformFeePercent)}% fees",
+                    "${"%.2f".format(state.platformFeePercent)}% fee deducted from returns",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -278,28 +278,14 @@ private fun HoldingRow(
                 )
             }
             if (holding.pnl != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (platformFeePercent > 0) {
-                        Text(
-                            "Net",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.size(4.dp))
-                    }
-                    Text(
-                        formatSignedChange(holding.pnl),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = changeColor(holding.pnl)
-                    )
-                    Spacer(Modifier.size(4.dp))
-                    Text(
-                        formatSignedPercent(holding.percentPnl),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = changeColor(holding.percentPnl)
-                    )
-                }
+                val prefix = if (platformFeePercent > 0) "Net " else ""
+                Text(
+                    prefix + formatSignedPercent(holding.percentPnl) +
+                        "  (${formatSignedChange(holding.pnl)})",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = changeColor(holding.percentPnl)
+                )
             }
         }
     }

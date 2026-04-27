@@ -57,16 +57,19 @@ object PositionCalculator {
         val totalQuantity = lots.sumOf { safeQuantity(it) }
         val avgEntry = if (totalQuantity > 0) totalInvested / totalQuantity else null
         val value = currentPrice?.let { price -> totalQuantity * price }
-        val pnl = value?.let { it - adjustedCostBasis(totalInvested, platformFeePercent) }
-        val pct = if (totalInvested > 0.0 && pnl != null) pnl / totalInvested * 100.0 else null
+        // Fee is subtracted from the gain percentage, not from the invested amount.
+        val grossPct = if (totalInvested > 0.0 && value != null)
+            (value - totalInvested) / totalInvested * 100.0 else null
+        val pct = grossPct?.let { it - platformFeePercent.coerceAtLeast(0.0) }
+        val pnl = if (pct != null) totalInvested * pct / 100.0 else null
 
         val perLot = lots.map { lot ->
             val q = safeQuantity(lot)
             val lotValue = currentPrice?.let { q * it }
-            val lotPnl = lotValue?.let { it - adjustedCostBasis(lot.amountInvested, platformFeePercent) }
-            val lotPct = if (lot.amountInvested > 0 && lotPnl != null)
-                lotPnl / lot.amountInvested * 100.0
-            else null
+            val lotGrossPct = if (lot.amountInvested > 0 && lotValue != null)
+                (lotValue - lot.amountInvested) / lot.amountInvested * 100.0 else null
+            val lotPct = lotGrossPct?.let { it - platformFeePercent.coerceAtLeast(0.0) }
+            val lotPnl = if (lotPct != null) lot.amountInvested * lotPct / 100.0 else null
             LotPnl(
                 lotId = lot.id,
                 entryPrice = lot.entryPrice,
@@ -120,15 +123,10 @@ object PositionCalculator {
         platformFeePercent: Double = 0.0
     ): Double {
         if (entryPrice <= 0.0) return 0.0
-        return ((currentPrice - effectiveEntryPrice(entryPrice, platformFeePercent)) / entryPrice) * 100.0
+        val grossPct = (currentPrice - entryPrice) / entryPrice * 100.0
+        return grossPct - platformFeePercent.coerceAtLeast(0.0)
     }
 
     private fun safeQuantity(lot: PositionLotEntity): Double =
         if (lot.entryPrice > 0) lot.amountInvested / lot.entryPrice else 0.0
-
-    private fun adjustedCostBasis(amountInvested: Double, platformFeePercent: Double): Double =
-        amountInvested * (1.0 + platformFeePercent.coerceAtLeast(0.0) / 100.0)
-
-    private fun effectiveEntryPrice(entryPrice: Double, platformFeePercent: Double): Double =
-        entryPrice * (1.0 + platformFeePercent.coerceAtLeast(0.0) / 100.0)
 }
