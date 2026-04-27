@@ -98,7 +98,8 @@ class PortfolioViewModel(
         // Cache quotes per symbol so we don't fetch the same ticker twice.
         val quoteCache = mutableMapOf<String, Double?>()
 
-        for (((symbol, platform), groupLots) in lotGroups) {
+        for ((key, groupLots) in lotGroups) {
+            val (symbol, platform) = key
             val watchItem = watchlistDao.getBySymbol(symbol)
             val name = watchItem?.name
 
