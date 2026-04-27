@@ -40,7 +40,11 @@ data class WatchlistUiState(
     val addQuery: String = "",
     val searchResults: List<SymbolMatch> = emptyList(),
     val searching: Boolean = false,
-    val marketSummaryText: String? = null
+    val marketSummaryText: String? = null,
+    /** Symbol waiting on user confirmation before deletion. */
+    val confirmDeleteSymbol: String? = null,
+    /** Non-null while the "Undo" snackbar is visible after a delete. */
+    val undoDeleteEntity: WatchlistItemEntity? = null
 )
 
 class WatchlistViewModel(
@@ -157,12 +161,36 @@ class WatchlistViewModel(
         }
     }
 
+    /** Step 1: show confirm dialog. */
+    fun confirmRemove(symbol: String) = _ui.update { it.copy(confirmDeleteSymbol = symbol) }
+    fun cancelRemove() = _ui.update { it.copy(confirmDeleteSymbol = null) }
+
+    /** Step 2: actually delete after user confirmed, then show undo snackbar. */
     fun remove(symbol: String) {
         viewModelScope.launch {
+            val entity = dao.getBySymbol(symbol)
             dao.deleteBySymbol(symbol)
             quoteCache.update { it - symbol }
+            _ui.update {
+                it.copy(
+                    confirmDeleteSymbol = null,
+                    undoDeleteEntity = entity
+                )
+            }
         }
     }
+
+    /** Re-insert the entity that was just deleted (undo). */
+    fun undoRemove() {
+        val entity = _ui.value.undoDeleteEntity ?: return
+        viewModelScope.launch {
+            dao.upsert(entity)
+            _ui.update { it.copy(undoDeleteEntity = null) }
+            refresh(force = true)
+        }
+    }
+
+    fun dismissUndoSnackbar() = _ui.update { it.copy(undoDeleteEntity = null) }
 
     fun move(fromIndex: Int, toIndex: Int) {
         val current = items.value.map { it.symbol }.toMutableList()

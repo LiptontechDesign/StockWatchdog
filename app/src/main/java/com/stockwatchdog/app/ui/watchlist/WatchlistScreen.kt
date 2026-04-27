@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -34,11 +35,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -79,6 +85,22 @@ fun WatchlistScreen(
     )
     val state by vm.ui.collectAsStateWithLifecycle()
     val items by vm.items.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Show undo snackbar after delete
+    LaunchedEffect(state.undoDeleteEntity) {
+        val entity = state.undoDeleteEntity ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = "${entity.symbol} removed",
+            actionLabel = "Undo",
+            duration = SnackbarDuration.Short
+        )
+        if (result == SnackbarResult.ActionPerformed) {
+            vm.undoRemove()
+        } else {
+            vm.dismissUndoSnackbar()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -112,6 +134,7 @@ fun WatchlistScreen(
                 }
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { vm.openAddSheet() },
@@ -140,7 +163,7 @@ fun WatchlistScreen(
                                 val i = items.indexOfFirst { it.symbol == row.symbol }
                                 if (i >= 0 && i < items.size - 1) vm.move(i, i + 1)
                             },
-                            onRemove = { vm.remove(row.symbol) }
+                            onRemove = { vm.confirmRemove(row.symbol) }
                         )
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
@@ -150,6 +173,21 @@ fun WatchlistScreen(
                 }
             }
         }
+    }
+
+    // Confirm-delete dialog
+    state.confirmDeleteSymbol?.let { sym ->
+        AlertDialog(
+            onDismissRequest = { vm.cancelRemove() },
+            title = { Text("Remove $sym?") },
+            text = { Text("This will remove the ticker, all its positions, and alerts. You can undo right after.") },
+            confirmButton = {
+                TextButton(onClick = { vm.remove(sym) }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.cancelRemove() }) { Text("Cancel") }
+            }
+        )
     }
 
     if (state.addSheetOpen) {
@@ -228,7 +266,7 @@ private fun WatchRowItem(
             Icon(
                 Icons.Default.Delete,
                 contentDescription = "Remove",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = MaterialTheme.colorScheme.error
             )
         }
     }

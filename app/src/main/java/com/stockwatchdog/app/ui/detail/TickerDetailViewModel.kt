@@ -45,7 +45,9 @@ data class DetailUiState(
     val lotDialogPriceDraft: String = "",
     val lotDialogAmountDraft: String = "",
     /** Confirm-delete: id of the lot waiting on user confirmation, or null. */
-    val lotDeleteConfirmId: Long? = null
+    val lotDeleteConfirmId: Long? = null,
+    /** Confirm-delete alert: id of the alert waiting on user confirmation. */
+    val alertDeleteConfirmId: Long? = null
 )
 
 class TickerDetailViewModel(
@@ -189,7 +191,58 @@ class TickerDetailViewModel(
     fun toggleAlert(id: Long, enabled: Boolean) =
         viewModelScope.launch { alertDao.setEnabled(id, enabled) }
 
-    fun deleteAlert(id: Long) = viewModelScope.launch { alertDao.delete(id) }
+    fun confirmDeleteAlert(id: Long) = _ui.update { it.copy(alertDeleteConfirmId = id) }
+    fun cancelDeleteAlert() = _ui.update { it.copy(alertDeleteConfirmId = null) }
+    fun deleteAlert(id: Long) {
+        viewModelScope.launch {
+            alertDao.delete(id)
+            _ui.update { it.copy(alertDeleteConfirmId = null) }
+        }
+    }
+
+    /** Shortcut: create a take-profit alert (gain vs entry %) from a position card. */
+    fun createTakeProfitAlert(percent: Double) {
+        if (percent <= 0) return
+        viewModelScope.launch {
+            val entry = _ui.value.avgEntryPrice ?: return@launch
+            val q = _ui.value.quote
+            val initialState = if (q != null && entry > 0) {
+                val pct = (q.price - entry) / entry * 100.0
+                pct >= percent
+            } else false
+            alertDao.insert(
+                AlertEntity(
+                    symbol = symbol,
+                    type = AlertType.PERCENT_ABOVE_ENTRY,
+                    threshold = percent,
+                    enabled = true,
+                    lastCrossingState = initialState
+                )
+            )
+        }
+    }
+
+    /** Shortcut: create a stop-loss alert (loss vs entry %) from a position card. */
+    fun createStopLossAlert(percent: Double) {
+        if (percent <= 0) return
+        viewModelScope.launch {
+            val entry = _ui.value.avgEntryPrice ?: return@launch
+            val q = _ui.value.quote
+            val initialState = if (q != null && entry > 0) {
+                val pct = (q.price - entry) / entry * 100.0
+                pct <= -percent
+            } else false
+            alertDao.insert(
+                AlertEntity(
+                    symbol = symbol,
+                    type = AlertType.PERCENT_BELOW_ENTRY,
+                    threshold = percent,
+                    enabled = true,
+                    lastCrossingState = initialState
+                )
+            )
+        }
+    }
 
     // ---------- Position lots (multi-entry) ----------
 

@@ -183,13 +183,15 @@ fun TickerDetailScreen(
                         state = state,
                         onAddLot = { vm.openAddLot() },
                         onEditLot = { id -> vm.openEditLot(id) },
-                        onDeleteLot = { id -> vm.confirmDeleteLot(id) }
+                        onDeleteLot = { id -> vm.confirmDeleteLot(id) },
+                        onTakeProfit = { pct -> vm.createTakeProfitAlert(pct) },
+                        onStopLoss = { pct -> vm.createStopLossAlert(pct) }
                     )
                     1 -> AlertsSection(
                         alerts = alerts,
                         onCreate = { vm.openCreateAlert() },
                         onToggle = vm::toggleAlert,
-                        onDelete = vm::deleteAlert
+                        onDelete = vm::confirmDeleteAlert
                     )
                 }
                 Spacer(Modifier.height(24.dp))
@@ -236,6 +238,26 @@ fun TickerDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { vm.cancelDeleteLot() }) { Text("Cancel") }
+            }
+        )
+    }
+
+    state.alertDeleteConfirmId?.let { alertId ->
+        val alert = alerts.firstOrNull { it.id == alertId }
+        AlertDialog(
+            onDismissRequest = { vm.cancelDeleteAlert() },
+            title = { Text("Delete alert?") },
+            text = {
+                Text(
+                    if (alert != null) "Delete \"${describeAlert(alert)}\"?"
+                    else "Delete this alert?"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.deleteAlert(alertId) }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.cancelDeleteAlert() }) { Text("Cancel") }
             }
         )
     }
@@ -439,7 +461,12 @@ private fun AlertRow(
         TextButton(onClick = { onToggle(a.id, !a.enabled) }) {
             Text(if (a.enabled) "Disable" else "Enable")
         }
-        TextButton(onClick = { onDelete(a.id) }) { Text("Delete") }
+        TextButton(
+            onClick = { onDelete(a.id) },
+            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                contentColor = MaterialTheme.colorScheme.error
+            )
+        ) { Text("Delete") }
     }
 }
 
@@ -448,7 +475,9 @@ private fun PositionSection(
     state: DetailUiState,
     onAddLot: () -> Unit,
     onEditLot: (Long) -> Unit,
-    onDeleteLot: (Long) -> Unit
+    onDeleteLot: (Long) -> Unit,
+    onTakeProfit: (Double) -> Unit = {},
+    onStopLoss: (Double) -> Unit = {}
 ) {
     val pnl = PositionCalculator.calculate(
         currentPrice = state.quote?.price,
@@ -537,6 +566,12 @@ private fun PositionSection(
                         onDelete = { onDeleteLot(lot.id) }
                     )
                 }
+                Spacer(Modifier.height(12.dp))
+                TpSlShortcuts(
+                    hasEntryPrice = state.avgEntryPrice != null,
+                    onTakeProfit = onTakeProfit,
+                    onStopLoss = onStopLoss
+                )
             }
         }
     }
@@ -671,6 +706,29 @@ private fun EditPositionDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
+
+@Composable
+private fun TpSlShortcuts(
+    hasEntryPrice: Boolean,
+    onTakeProfit: (Double) -> Unit,
+    onStopLoss: (Double) -> Unit
+) {
+    if (!hasEntryPrice) return
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            "Quick alerts",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onTakeProfit(10.0) }) { Text("TP +10%") }
+            OutlinedButton(onClick = { onTakeProfit(20.0) }) { Text("TP +20%") }
+            OutlinedButton(onClick = { onStopLoss(5.0) }) { Text("SL -5%") }
+            OutlinedButton(onClick = { onStopLoss(10.0) }) { Text("SL -10%") }
+        }
+    }
 }
 
 fun describeAlert(a: AlertEntity): String = when (a.type) {

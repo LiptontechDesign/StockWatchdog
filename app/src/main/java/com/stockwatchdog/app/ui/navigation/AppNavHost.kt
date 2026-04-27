@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Icon
@@ -27,11 +28,13 @@ import androidx.navigation.NavType
 import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.ui.alerts.AlertsScreen
 import com.stockwatchdog.app.ui.detail.TickerDetailScreen
+import com.stockwatchdog.app.ui.portfolio.PortfolioScreen
 import com.stockwatchdog.app.ui.settings.SettingsScreen
 import com.stockwatchdog.app.ui.watchlist.WatchlistScreen
 
 sealed class TopLevel(val route: String, val label: String) {
     data object Watchlist : TopLevel("watchlist", "Watchlist")
+    data object Portfolio : TopLevel("portfolio", "Portfolio")
     data object Alerts : TopLevel("alerts", "Alerts")
     data object Settings : TopLevel("settings", "Settings")
 }
@@ -61,6 +64,7 @@ fun AppNavHost(
     val currentRoute = backStack?.destination?.route
     val showBottomBar = currentRoute in listOf(
         TopLevel.Watchlist.route,
+        TopLevel.Portfolio.route,
         TopLevel.Alerts.route,
         TopLevel.Settings.route
     )
@@ -69,7 +73,7 @@ fun AppNavHost(
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar {
-                    val items = listOf(TopLevel.Watchlist, TopLevel.Alerts, TopLevel.Settings)
+                    val items = listOf(TopLevel.Watchlist, TopLevel.Portfolio, TopLevel.Alerts, TopLevel.Settings)
                     items.forEach { item ->
                         val selected = backStack?.destination?.hierarchy
                             ?.any { it.route == item.route } == true
@@ -88,6 +92,7 @@ fun AppNavHost(
                                 Icon(
                                     imageVector = when (item) {
                                         TopLevel.Watchlist -> Icons.Default.ShowChart
+                                        TopLevel.Portfolio -> Icons.Default.PieChart
                                         TopLevel.Alerts -> Icons.Default.NotificationsActive
                                         TopLevel.Settings -> Icons.Default.Settings
                                     },
@@ -108,6 +113,12 @@ fun AppNavHost(
             ) {
                 composable(TopLevel.Watchlist.route) {
                     WatchlistScreen(
+                        container = container,
+                        onOpenSymbol = { sym -> navController.navigate(Routes.detail(sym)) }
+                    )
+                }
+                composable(TopLevel.Portfolio.route) {
+                    PortfolioScreen(
                         container = container,
                         onOpenSymbol = { sym -> navController.navigate(Routes.detail(sym)) }
                     )
