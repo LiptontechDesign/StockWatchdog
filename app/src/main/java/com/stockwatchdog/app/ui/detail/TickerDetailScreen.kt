@@ -86,7 +86,8 @@ fun TickerDetailScreen(
                     repo = container.marketDataRepository,
                     watchlistDao = container.database.watchlistDao(),
                     alertDao = container.database.alertDao(),
-                    positionLotDao = container.database.positionLotDao()
+                    positionLotDao = container.database.positionLotDao(),
+                    settingsRepository = container.settingsRepository
                 )
             }
         }
@@ -204,6 +205,7 @@ fun TickerDetailScreen(
             type = state.newAlertType,
             threshold = state.newAlertThreshold,
             hasEntryPrice = state.avgEntryPrice != null,
+            platformFeePercent = state.platformFeePercent,
             onTypeChange = vm::onAlertTypeChange,
             onThresholdChange = vm::onAlertThresholdChange,
             onSave = { vm.saveAlert() },
@@ -481,7 +483,8 @@ private fun PositionSection(
 ) {
     val pnl = PositionCalculator.calculate(
         currentPrice = state.quote?.price,
-        lots = state.lots
+        lots = state.lots,
+        platformFeePercent = state.platformFeePercent
     )
     val lotPnlById = pnl.perLot.associateBy { it.lotId }
 
@@ -519,6 +522,14 @@ private fun PositionSection(
                 )
             } else {
                 Spacer(Modifier.height(6.dp))
+                if (state.platformFeePercent > 0) {
+                    Text(
+                        "Net returns include ${"%.2f".format(state.platformFeePercent)}% fees",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 SummaryRow(
                     "Total invested", formatPrice(pnl.totalInvested),
                     "Current value", formatPrice(pnl.positionValue)
@@ -527,7 +538,7 @@ private fun PositionSection(
                 Row(Modifier.fillMaxWidth()) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            "Total P&L",
+                            if (state.platformFeePercent > 0) "Net P&L" else "Total P&L",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -543,7 +554,7 @@ private fun PositionSection(
                         horizontalAlignment = Alignment.End
                     ) {
                         Text(
-                            "Return",
+                            if (state.platformFeePercent > 0) "Net return" else "Return",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -562,6 +573,7 @@ private fun PositionSection(
                         title = "Position ${index + 1}",
                         lot = lot,
                         pnl = lotPnlById[lot.id],
+                        platformFeePercent = state.platformFeePercent,
                         onEdit = { onEditLot(lot.id) },
                         onDelete = { onDeleteLot(lot.id) }
                     )
@@ -569,6 +581,7 @@ private fun PositionSection(
                 Spacer(Modifier.height(12.dp))
                 TpSlShortcuts(
                     hasEntryPrice = state.avgEntryPrice != null,
+                    platformFeePercent = state.platformFeePercent,
                     onTakeProfit = onTakeProfit,
                     onStopLoss = onStopLoss
                 )
@@ -582,6 +595,7 @@ private fun LotCard(
     title: String,
     lot: PositionLotEntity,
     pnl: com.stockwatchdog.app.domain.LotPnl?,
+    platformFeePercent: Double,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -620,7 +634,7 @@ private fun LotCard(
             Row(Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "Since entry",
+                        if (platformFeePercent > 0) "Net since entry" else "Since entry",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -636,7 +650,7 @@ private fun LotCard(
                     horizontalAlignment = Alignment.End
                 ) {
                     Text(
-                        "Return",
+                        if (platformFeePercent > 0) "Net return" else "Return",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -711,13 +725,14 @@ private fun EditPositionDialog(
 @Composable
 private fun TpSlShortcuts(
     hasEntryPrice: Boolean,
+    platformFeePercent: Double,
     onTakeProfit: (Double) -> Unit,
     onStopLoss: (Double) -> Unit
 ) {
     if (!hasEntryPrice) return
     Column(Modifier.fillMaxWidth()) {
         Text(
-            "Quick alerts",
+            if (platformFeePercent > 0) "Quick alerts (net after fees)" else "Quick alerts",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -735,8 +750,8 @@ fun describeAlert(a: AlertEntity): String = when (a.type) {
     AlertType.PRICE_ABOVE -> "Price above ${"%.2f".format(a.threshold)}"
     AlertType.PRICE_BELOW -> "Price below ${"%.2f".format(a.threshold)}"
     AlertType.PERCENT_CHANGE_DAY -> "Day change exceeds ${"%.2f".format(a.threshold)}%"
-    AlertType.PERCENT_ABOVE_ENTRY -> "Gain vs entry reaches +${"%.2f".format(a.threshold)}%"
-    AlertType.PERCENT_BELOW_ENTRY -> "Loss vs entry reaches -${"%.2f".format(a.threshold)}%"
+    AlertType.PERCENT_ABOVE_ENTRY -> "Net gain vs entry reaches +${"%.2f".format(a.threshold)}%"
+    AlertType.PERCENT_BELOW_ENTRY -> "Net loss vs entry reaches -${"%.2f".format(a.threshold)}%"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -745,6 +760,7 @@ private fun CreateAlertDialog(
     type: AlertType,
     threshold: String,
     hasEntryPrice: Boolean,
+    platformFeePercent: Double,
     onTypeChange: (AlertType) -> Unit,
     onThresholdChange: (String) -> Unit,
     onSave: () -> Unit,
@@ -787,14 +803,14 @@ private fun CreateAlertDialog(
                         selected = type == AlertType.PERCENT_ABOVE_ENTRY,
                         onClick = { onTypeChange(AlertType.PERCENT_ABOVE_ENTRY) },
                         enabled = hasEntryPrice,
-                        label = { Text("Gain vs entry") }
+                        label = { Text(if (platformFeePercent > 0) "Net gain vs entry" else "Gain vs entry") }
                     )
                     Spacer(Modifier.size(6.dp))
                     FilterChip(
                         selected = type == AlertType.PERCENT_BELOW_ENTRY,
                         onClick = { onTypeChange(AlertType.PERCENT_BELOW_ENTRY) },
                         enabled = hasEntryPrice,
-                        label = { Text("Loss vs entry") }
+                        label = { Text(if (platformFeePercent > 0) "Net loss vs entry" else "Loss vs entry") }
                     )
                 }
                 if (!hasEntryPrice) {
@@ -818,9 +834,9 @@ private fun CreateAlertDialog(
                                 AlertType.PERCENT_CHANGE_DAY ->
                                     "Percent (e.g. 3.5)"
                                 AlertType.PERCENT_ABOVE_ENTRY ->
-                                    "Gain % (e.g. 10 for +10%)"
+                                    if (platformFeePercent > 0) "Net gain % (e.g. 10 for +10% after fees)" else "Gain % (e.g. 10 for +10%)"
                                 AlertType.PERCENT_BELOW_ENTRY ->
-                                    "Loss % (e.g. 5 for -5%)"
+                                    if (platformFeePercent > 0) "Net loss % (e.g. 5 for -5% after fees)" else "Loss % (e.g. 5 for -5%)"
                             }
                         )
                     },
@@ -830,7 +846,10 @@ private fun CreateAlertDialog(
                 if (isPercent) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Use a positive number. For \"Loss vs entry 5%\" enter 5.",
+                        if (isEntryBased && platformFeePercent > 0)
+                            "Use a positive number. Entry-based alerts use net return after fees. For \"Net loss vs entry 5%\" enter 5."
+                        else
+                            "Use a positive number. For \"Loss vs entry 5%\" enter 5.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

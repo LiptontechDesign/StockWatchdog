@@ -30,7 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -56,6 +58,8 @@ fun SettingsScreen(container: AppContainer) {
     var twelveDraft by rememberSaveable { mutableStateOf("") }
     var alphaDraft by rememberSaveable { mutableStateOf("") }
     var finnhubDraft by rememberSaveable { mutableStateOf("") }
+    var editingFee by rememberSaveable { mutableStateOf(false) }
+    var feeDraft by rememberSaveable { mutableStateOf("") }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Settings", fontWeight = FontWeight.SemiBold) }) }
@@ -175,6 +179,37 @@ fun SettingsScreen(container: AppContainer) {
             Text(
                 "Yahoo Finance is used as a no-key backup when keyed providers " +
                     "are rate-limited.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            SectionHeader("Fees")
+            FeeSetting(
+                savedPercent = s.platformFeePercent,
+                isEditing = editingFee,
+                draftValue = feeDraft,
+                onOpenEditor = {
+                    editingFee = true
+                    feeDraft = if (s.platformFeePercent == 0.0) "" else s.platformFeePercent.toString()
+                },
+                onDraftChange = { feeDraft = it },
+                onApply = {
+                    val parsed = feeDraft.replace(",", ".").toDoubleOrNull() ?: 0.0
+                    vm.setPlatformFeePercent(parsed)
+                    editingFee = false
+                },
+                onCancel = {
+                    feeDraft = ""
+                    editingFee = false
+                }
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Applied to position, watchlist, portfolio, and entry-based alert returns so your break-even includes platform and transaction costs.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -312,6 +347,64 @@ private fun ApiKeySetting(
             }
             TextButton(onClick = onOpenEditor) {
                 Text(if (hasSavedValue) "Replace" else "Paste key")
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeeSetting(
+    savedPercent: Double,
+    isEditing: Boolean,
+    draftValue: String,
+    onOpenEditor: () -> Unit,
+    onDraftChange: (String) -> Unit,
+    onApply: () -> Unit,
+    onCancel: () -> Unit
+) {
+    if (isEditing) {
+        val valid = draftValue.replace(",", ".").toDoubleOrNull()?.let { it >= 0 } == true
+        Column(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = draftValue,
+                onValueChange = onDraftChange,
+                label = { Text("Platform fee %") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onApply,
+                    enabled = valid
+                ) {
+                    Text("Apply")
+                }
+                TextButton(onClick = onCancel) {
+                    Text("Cancel")
+                }
+            }
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Platform fee adjustment",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    if (savedPercent > 0.0) "${"%.2f".format(savedPercent)}% applied to net returns" else "0.00% (off)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(onClick = onOpenEditor) {
+                Text(if (savedPercent > 0.0) "Edit" else "Set fee")
             }
         }
     }

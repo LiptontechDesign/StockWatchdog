@@ -28,6 +28,7 @@ class SettingsViewModel(
     fun setTwelveKey(k: String) = viewModelScope.launch { repo.setTwelveDataKey(k) }
     fun setAlphaKey(k: String) = viewModelScope.launch { repo.setAlphaVantageKey(k) }
     fun setFinnhubKey(k: String) = viewModelScope.launch { repo.setFinnhubKey(k) }
+    fun setPlatformFeePercent(percent: Double) = viewModelScope.launch { repo.setPlatformFeePercent(percent) }
 
     fun setInterval(minutes: Int) = viewModelScope.launch {
         repo.setIntervalMinutes(minutes)

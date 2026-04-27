@@ -30,15 +30,15 @@ android {
 
         buildConfigField(
             "String", "TWELVE_DATA_API_KEY",
-            "\"${localProp("TWELVE_DATA_API_KEY")}\""
+            "\"${localProp("TWELVE_DATA_API_KEY", "fd45fc48ee8b4bb9942bbed9edb15af3")}\""
         )
         buildConfigField(
             "String", "ALPHA_VANTAGE_API_KEY",
-            "\"${localProp("ALPHA_VANTAGE_API_KEY")}\""
+            "\"${localProp("ALPHA_VANTAGE_API_KEY", "7IH3N5WDRTF9GMZE")}\""
         )
         buildConfigField(
             "String", "FINNHUB_API_KEY",
-            "\"${localProp("FINNHUB_API_KEY")}\""
+            "\"${localProp("FINNHUB_API_KEY", "d7jj9nhr01qhf13f3cd0d7jj9nhr01qhf13f3cdg")}\""
         )
     }
 

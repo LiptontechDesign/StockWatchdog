@@ -56,7 +56,8 @@ class AlertCheckWorker(
             val eval = AlertEvaluator.evaluate(
                 alert = alert,
                 quote = quote,
-                entryPrice = entryPrices[alert.symbol]
+                entryPrice = entryPrices[alert.symbol],
+                platformFeePercent = settings.platformFeePercent
             )
             if (eval.updated != alert) alertDao.update(eval.updated)
             if (eval.shouldNotify) {

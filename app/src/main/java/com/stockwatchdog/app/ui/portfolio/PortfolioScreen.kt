@@ -55,7 +55,8 @@ fun PortfolioScreen(
                 PortfolioViewModel(
                     watchlistDao = container.database.watchlistDao(),
                     positionLotDao = container.database.positionLotDao(),
-                    repo = container.marketDataRepository
+                    repo = container.marketDataRepository,
+                    settingsRepository = container.settingsRepository
                 )
             }
         }
@@ -81,7 +82,14 @@ fun PortfolioScreen(
             )
         }
     ) { padding ->
-        if (state.holdings.isEmpty() && !state.isRefreshing) {
+        if (state.isRefreshing && state.holdings.isEmpty()) {
+            Box(
+                Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (state.holdings.isEmpty()) {
             Box(
                 Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center
@@ -109,6 +117,7 @@ fun PortfolioScreen(
                 items(state.holdings, key = { it.symbol }) { holding ->
                     HoldingRow(
                         holding = holding,
+                        platformFeePercent = state.platformFeePercent,
                         onClick = { onOpenSymbol(holding.symbol) }
                     )
                     HorizontalDivider(
@@ -170,6 +179,15 @@ private fun PortfolioSummaryCard(state: PortfolioUiState) {
                 }
             }
 
+            if (state.platformFeePercent > 0) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Net returns include ${"%.2f".format(state.platformFeePercent)}% fees",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
@@ -214,6 +232,7 @@ private fun PortfolioSummaryCard(state: PortfolioUiState) {
 @Composable
 private fun HoldingRow(
     holding: HoldingRow,
+    platformFeePercent: Double,
     onClick: () -> Unit
 ) {
     Row(
@@ -260,6 +279,14 @@ private fun HoldingRow(
             }
             if (holding.pnl != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (platformFeePercent > 0) {
+                        Text(
+                            "Net",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.size(4.dp))
+                    }
                     Text(
                         formatSignedChange(holding.pnl),
                         style = MaterialTheme.typography.bodySmall,

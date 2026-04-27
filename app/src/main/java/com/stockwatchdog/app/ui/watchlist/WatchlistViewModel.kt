@@ -41,6 +41,7 @@ data class WatchlistUiState(
     val searchResults: List<SymbolMatch> = emptyList(),
     val searching: Boolean = false,
     val marketSummaryText: String? = null,
+    val platformFeePercent: Double = 0.0,
     /** Symbol waiting on user confirmation before deletion. */
     val confirmDeleteSymbol: String? = null,
     /** Non-null while the "Undo" snackbar is visible after a delete. */
@@ -93,6 +94,11 @@ class WatchlistViewModel(
                 }
             }.collect { rows ->
                 _ui.update { it.copy(rows = rows) }
+            }
+        }
+        viewModelScope.launch {
+            container.settingsRepository.settings.collect { settings ->
+                _ui.update { it.copy(platformFeePercent = settings.platformFeePercent) }
             }
         }
         // Kick off a refresh on first load so rows show prices quickly.

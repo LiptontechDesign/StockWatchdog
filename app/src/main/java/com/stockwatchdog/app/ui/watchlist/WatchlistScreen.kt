@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -134,14 +133,7 @@ fun WatchlistScreen(
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { vm.openAddSheet() },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Add ticker") }
-            )
-        }
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             if (items.isEmpty()) {
@@ -149,11 +141,12 @@ fun WatchlistScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 96.dp)
+                    contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
                     items(state.rows, key = { it.symbol }) { row ->
                         WatchRowItem(
                             row = row,
+                            platformFeePercent = state.platformFeePercent,
                             onClick = { onOpenSymbol(row.symbol) },
                             onMoveUp = {
                                 val i = items.indexOfFirst { it.symbol == row.symbol }
@@ -211,6 +204,7 @@ fun WatchlistScreen(
 @Composable
 private fun WatchRowItem(
     row: WatchRow,
+    platformFeePercent: Double,
     onClick: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -242,10 +236,12 @@ private fun WatchRowItem(
                 val pnl = PositionCalculator.calculate(
                     currentPrice = row.quote.price,
                     entryPrice = row.entryPrice,
-                    quantity = row.quantity
+                    quantity = row.quantity,
+                    platformFeePercent = platformFeePercent
                 )
                 Text(
-                    "vs entry ${formatSignedPercent(pnl.percentPnl)}" +
+                    (if (platformFeePercent > 0) "net vs entry " else "vs entry ") +
+                        formatSignedPercent(pnl.percentPnl) +
                         (pnl.totalPnl?.let { " • ${formatSignedChange(it)}" } ?: ""),
                     style = MaterialTheme.typography.labelSmall,
                     color = changeColor(pnl.percentPnl),

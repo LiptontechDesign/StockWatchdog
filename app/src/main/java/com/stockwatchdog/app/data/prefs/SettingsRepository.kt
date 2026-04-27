@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -20,6 +21,7 @@ data class UserSettings(
     val twelveDataKey: String = "",
     val alphaVantageKey: String = "",
     val finnhubKey: String = "",
+    val platformFeePercent: Double = 0.0,
     val intervalMinutes: Int = 30,
     val notificationsEnabled: Boolean = true,
     val themeMode: ThemeMode = ThemeMode.SYSTEM
@@ -48,6 +50,7 @@ class SettingsRepository(private val context: Context) {
         val TWELVE = stringPreferencesKey("td_key")
         val ALPHA = stringPreferencesKey("av_key")
         val FINNHUB = stringPreferencesKey("fh_key")
+        val PLATFORM_FEE_PERCENT = doublePreferencesKey("platform_fee_percent")
         val INTERVAL = intPreferencesKey("interval_minutes")
         val NOTIFS = booleanPreferencesKey("notifications")
         val THEME = stringPreferencesKey("theme")
@@ -59,6 +62,7 @@ class SettingsRepository(private val context: Context) {
             twelveDataKey = prefs[Keys.TWELVE] ?: BuildConfig.TWELVE_DATA_API_KEY,
             alphaVantageKey = prefs[Keys.ALPHA] ?: BuildConfig.ALPHA_VANTAGE_API_KEY,
             finnhubKey = prefs[Keys.FINNHUB] ?: BuildConfig.FINNHUB_API_KEY,
+            platformFeePercent = prefs[Keys.PLATFORM_FEE_PERCENT] ?: 0.0,
             intervalMinutes = prefs[Keys.INTERVAL] ?: 30,
             notificationsEnabled = prefs[Keys.NOTIFS] ?: true,
             themeMode = prefs[Keys.THEME]?.let(::runCatchingTheme) ?: ThemeMode.SYSTEM
@@ -76,6 +80,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setFinnhubKey(key: String) =
         context.dataStore.edit { it[Keys.FINNHUB] = key.trim() }
+
+    suspend fun setPlatformFeePercent(percent: Double) =
+        context.dataStore.edit { it[Keys.PLATFORM_FEE_PERCENT] = percent.coerceAtLeast(0.0) }
 
     suspend fun setIntervalMinutes(minutes: Int) =
         context.dataStore.edit { it[Keys.INTERVAL] = minutes }

@@ -10,14 +10,17 @@ import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.AlertType
 import com.stockwatchdog.app.data.db.entities.PositionLotEntity
 import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
+import com.stockwatchdog.app.data.prefs.SettingsRepository
 import com.stockwatchdog.app.domain.ChartRange
 import com.stockwatchdog.app.domain.DataResult
+import com.stockwatchdog.app.domain.PositionCalculator
 import com.stockwatchdog.app.domain.PricePoint
 import com.stockwatchdog.app.domain.Quote
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -36,6 +39,7 @@ data class DetailUiState(
     val lots: List<PositionLotEntity> = emptyList(),
     /** Weighted-average entry across all lots. Used for "% vs entry" alerts. */
     val avgEntryPrice: Double? = null,
+    val platformFeePercent: Double = 0.0,
     val createAlertOpen: Boolean = false,
     val newAlertType: AlertType = AlertType.PRICE_ABOVE,
     val newAlertThreshold: String = "",
@@ -55,7 +59,8 @@ class TickerDetailViewModel(
     private val repo: MarketDataRepository,
     private val watchlistDao: WatchlistDao,
     private val alertDao: AlertDao,
-    private val positionLotDao: PositionLotDao
+    private val positionLotDao: PositionLotDao,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(DetailUiState(symbol = symbol))
@@ -76,6 +81,11 @@ class TickerDetailViewModel(
         viewModelScope.launch {
             positionLotDao.observeBySymbol(symbol).collect { lots ->
                 _ui.update { it.copy(lots = lots, avgEntryPrice = weightedAvgEntry(lots)) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.settings.collectLatest { settings ->
+                _ui.update { it.copy(platformFeePercent = settings.platformFeePercent) }
             }
         }
     }
@@ -163,13 +173,21 @@ class TickerDetailViewModel(
                     AlertType.PERCENT_CHANGE_DAY -> false
                     AlertType.PERCENT_ABOVE_ENTRY -> {
                         if (entry != null && entry > 0) {
-                            val pct = (q.price - entry) / entry * 100.0
+                            val pct = PositionCalculator.netPercentVsEntry(
+                                currentPrice = q.price,
+                                entryPrice = entry,
+                                platformFeePercent = s.platformFeePercent
+                            )
                             pct >= threshold
                         } else false
                     }
                     AlertType.PERCENT_BELOW_ENTRY -> {
                         if (entry != null && entry > 0) {
-                            val pct = (q.price - entry) / entry * 100.0
+                            val pct = PositionCalculator.netPercentVsEntry(
+                                currentPrice = q.price,
+                                entryPrice = entry,
+                                platformFeePercent = s.platformFeePercent
+                            )
                             pct <= -threshold
                         } else false
                     }
@@ -204,10 +222,15 @@ class TickerDetailViewModel(
     fun createTakeProfitAlert(percent: Double) {
         if (percent <= 0) return
         viewModelScope.launch {
-            val entry = _ui.value.avgEntryPrice ?: return@launch
-            val q = _ui.value.quote
+            val state = _ui.value
+            val entry = state.avgEntryPrice ?: return@launch
+            val q = state.quote
             val initialState = if (q != null && entry > 0) {
-                val pct = (q.price - entry) / entry * 100.0
+                val pct = PositionCalculator.netPercentVsEntry(
+                    currentPrice = q.price,
+                    entryPrice = entry,
+                    platformFeePercent = state.platformFeePercent
+                )
                 pct >= percent
             } else false
             alertDao.insert(
@@ -226,10 +249,15 @@ class TickerDetailViewModel(
     fun createStopLossAlert(percent: Double) {
         if (percent <= 0) return
         viewModelScope.launch {
-            val entry = _ui.value.avgEntryPrice ?: return@launch
-            val q = _ui.value.quote
+            val state = _ui.value
+            val entry = state.avgEntryPrice ?: return@launch
+            val q = state.quote
             val initialState = if (q != null && entry > 0) {
-                val pct = (q.price - entry) / entry * 100.0
+                val pct = PositionCalculator.netPercentVsEntry(
+                    currentPrice = q.price,
+                    entryPrice = entry,
+                    platformFeePercent = state.platformFeePercent
+                )
                 pct <= -percent
             } else false
             alertDao.insert(

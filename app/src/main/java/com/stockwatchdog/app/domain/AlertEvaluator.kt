@@ -33,7 +33,8 @@ object AlertEvaluator {
         alert: AlertEntity,
         quote: Quote,
         now: Long = System.currentTimeMillis(),
-        entryPrice: Double? = null
+        entryPrice: Double? = null,
+        platformFeePercent: Double = 0.0
     ): AlertEvaluation {
         if (!alert.enabled) return AlertEvaluation(alert, alert, shouldNotify = false)
 
@@ -41,8 +42,8 @@ object AlertEvaluator {
             AlertType.PRICE_ABOVE -> evalAbove(alert, quote, now)
             AlertType.PRICE_BELOW -> evalBelow(alert, quote, now)
             AlertType.PERCENT_CHANGE_DAY -> evalPercent(alert, quote, now)
-            AlertType.PERCENT_ABOVE_ENTRY -> evalAboveEntry(alert, quote, entryPrice, now)
-            AlertType.PERCENT_BELOW_ENTRY -> evalBelowEntry(alert, quote, entryPrice, now)
+            AlertType.PERCENT_ABOVE_ENTRY -> evalAboveEntry(alert, quote, entryPrice, platformFeePercent, now)
+            AlertType.PERCENT_BELOW_ENTRY -> evalBelowEntry(alert, quote, entryPrice, platformFeePercent, now)
         }
     }
 
@@ -96,18 +97,19 @@ object AlertEvaluator {
         a: AlertEntity,
         q: Quote,
         entryPrice: Double?,
+        platformFeePercent: Double,
         now: Long
     ): AlertEvaluation {
         if (entryPrice == null || entryPrice <= 0.0) {
             // No entry price tracked yet; keep the alert dormant without updating state.
             return AlertEvaluation(a, a, shouldNotify = false)
         }
-        val pct = (q.price - entryPrice) / entryPrice * 100.0
+        val pct = PositionCalculator.netPercentVsEntry(q.price, entryPrice, platformFeePercent)
         val triggered = pct >= a.threshold
         val previously = a.lastCrossingState ?: false
         val shouldNotify = triggered && !previously
         val message = if (shouldNotify)
-            "${a.symbol} is ${"%.2f".format(pct)}% above your entry " +
+            "${a.symbol} is ${"%.2f".format(pct)}% net vs your entry " +
                 "(target: +${"%.2f".format(a.threshold)}%)"
         else null
         val updated = a.copy(
@@ -121,18 +123,19 @@ object AlertEvaluator {
         a: AlertEntity,
         q: Quote,
         entryPrice: Double?,
+        platformFeePercent: Double,
         now: Long
     ): AlertEvaluation {
         if (entryPrice == null || entryPrice <= 0.0) {
             return AlertEvaluation(a, a, shouldNotify = false)
         }
-        val pct = (q.price - entryPrice) / entryPrice * 100.0
+        val pct = PositionCalculator.netPercentVsEntry(q.price, entryPrice, platformFeePercent)
         // User enters a positive magnitude: e.g. 5 means "fire when down 5% or more".
         val triggered = pct <= -a.threshold
         val previously = a.lastCrossingState ?: false
         val shouldNotify = triggered && !previously
         val message = if (shouldNotify)
-            "${a.symbol} is ${"%.2f".format(pct)}% vs your entry " +
+            "${a.symbol} is ${"%.2f".format(pct)}% net vs your entry " +
                 "(trigger: -${"%.2f".format(a.threshold)}%)"
         else null
         val updated = a.copy(

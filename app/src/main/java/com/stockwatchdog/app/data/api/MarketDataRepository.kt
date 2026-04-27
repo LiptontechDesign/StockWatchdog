@@ -28,9 +28,12 @@ import java.util.TimeZone
  * errors to friendly messages.
  *
  * In [ApiProvider.AUTO] mode, each operation walks a provider chain:
- *  - quote:  Finnhub -> Twelve Data -> Yahoo -> Alpha Vantage
- *  - series: Yahoo   -> Twelve Data -> Alpha Vantage
- *  - search: Yahoo   -> Finnhub    -> Twelve Data
+ *  - quote:  Twelve Data -> Finnhub -> Yahoo -> Alpha Vantage
+ *  - series: Twelve Data -> Yahoo   -> Alpha Vantage
+ *  - search: Twelve Data -> Yahoo   -> Finnhub
+ *
+ * Twelve Data is prioritised because it supports quotes **and** chart series
+ * on its free tier, while Finnhub charts are premium-only.
  *
  * Providers that return a rate-limit/auth/quota error are placed in a
  * short cooldown via [ProviderCooldown] so subsequent calls within the
@@ -101,8 +104,8 @@ class MarketDataRepository(
 
     private fun quoteChain(s: UserSettings): List<ApiProvider> = when (s.provider) {
         ApiProvider.AUTO -> listOfNotNull(
-            if (s.finnhubKey.isNotBlank()) ApiProvider.FINNHUB else null,
             if (s.twelveDataKey.isNotBlank()) ApiProvider.TWELVE_DATA else null,
+            if (s.finnhubKey.isNotBlank()) ApiProvider.FINNHUB else null,
             ApiProvider.YAHOO,
             if (s.alphaVantageKey.isNotBlank()) ApiProvider.ALPHA_VANTAGE else null
         )
@@ -111,19 +114,23 @@ class MarketDataRepository(
 
     private fun seriesChain(s: UserSettings): List<ApiProvider> = when (s.provider) {
         ApiProvider.AUTO -> listOfNotNull(
-            ApiProvider.YAHOO,
             if (s.twelveDataKey.isNotBlank()) ApiProvider.TWELVE_DATA else null,
+            ApiProvider.YAHOO,
             if (s.alphaVantageKey.isNotBlank()) ApiProvider.ALPHA_VANTAGE else null
         )
-        ApiProvider.FINNHUB -> listOf(ApiProvider.YAHOO) // Finnhub candles are premium
+        ApiProvider.FINNHUB -> listOfNotNull(
+            if (s.twelveDataKey.isNotBlank()) ApiProvider.TWELVE_DATA else null,
+            ApiProvider.YAHOO,
+            if (s.alphaVantageKey.isNotBlank()) ApiProvider.ALPHA_VANTAGE else null
+        ) // Finnhub candles are premium, so fall back to the other chart providers.
         else -> listOf(s.provider)
     }
 
     private fun searchChain(s: UserSettings): List<ApiProvider> = when (s.provider) {
         ApiProvider.AUTO -> listOfNotNull(
+            if (s.twelveDataKey.isNotBlank()) ApiProvider.TWELVE_DATA else null,
             ApiProvider.YAHOO,
-            if (s.finnhubKey.isNotBlank()) ApiProvider.FINNHUB else null,
-            ApiProvider.TWELVE_DATA
+            if (s.finnhubKey.isNotBlank()) ApiProvider.FINNHUB else null
         )
         else -> listOf(s.provider)
     }
@@ -142,9 +149,14 @@ class MarketDataRepository(
             )
         }
         var lastError: DataResult.Error? = null
+        var skippedForCooldown = false
+        var sawRateLimitOrQuota = false
         for (provider in chain) {
             val key = provider.name
-            if (cooldown.isCoolingDown(key)) continue
+            if (cooldown.isCoolingDown(key)) {
+                skippedForCooldown = true
+                continue
+            }
             val result = runCatchingApi { block(provider) }
             when (result) {
                 is DataResult.Success -> {
@@ -154,12 +166,26 @@ class MarketDataRepository(
                 is DataResult.Error -> {
                     lastError = result
                     if (looksLikeRateLimit(result.message)) {
+                        sawRateLimitOrQuota = true
                         cooldown.trip(key, ProviderCooldown.PER_MINUTE_CAP_MS)
                     } else if (looksLikeDailyCap(result.message)) {
+                        sawRateLimitOrQuota = true
                         cooldown.trip(key, ProviderCooldown.PER_DAY_CAP_MS)
                     }
                     // Otherwise just try the next provider in the chain.
                 }
+            }
+        }
+        if (op == "series") {
+            return when {
+                sawRateLimitOrQuota || skippedForCooldown -> DataResult.Error(
+                    "Chart data is temporarily unavailable because the free data providers hit a limit. Quotes and positions still work. Try again in a minute or switch chart provider in Settings.",
+                    retryable = true
+                )
+                else -> DataResult.Error(
+                    lastError?.message ?: "Chart data is temporarily unavailable right now. Please try again shortly.",
+                    retryable = true
+                )
             }
         }
         return lastError ?: DataResult.Error("All providers failed for $op.", retryable = true)
