@@ -34,6 +34,12 @@ jobs:
         with:
           gradle-version: "8.4"
 
+      - name: Restore signing keystore
+        if: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 != '' }}
+        run: |
+          mkdir -p keystore
+          echo "${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}" | base64 --decode > keystore/stockwatchdog-upload.p12
+
       # Optional: if you ever set these as GitHub Secrets, the built APK will
       # ship with the keys baked in. If you don't set them, the app will
       # simply prompt you to enter them in Settings on first launch.
@@ -42,6 +48,12 @@ jobs:
           echo "TWELVE_DATA_API_KEY=${{ secrets.TWELVE_DATA_API_KEY }}" >> local.properties
           echo "ALPHA_VANTAGE_API_KEY=${{ secrets.ALPHA_VANTAGE_API_KEY }}" >> local.properties
           echo "FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }}" >> local.properties
+          echo "APP_VERSION_CODE=${{ github.run_number }}" >> local.properties
+          echo "ANDROID_SIGNING_STORE_FILE=keystore/stockwatchdog-upload.p12" >> local.properties
+          echo "ANDROID_SIGNING_STORE_TYPE=PKCS12" >> local.properties
+          echo "ANDROID_SIGNING_STORE_PASSWORD=${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}" >> local.properties
+          echo "ANDROID_SIGNING_KEY_ALIAS=${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}" >> local.properties
+          echo "ANDROID_SIGNING_KEY_PASSWORD=${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}" >> local.properties
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace

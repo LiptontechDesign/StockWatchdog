@@ -15,15 +15,43 @@ val localProps = Properties().apply {
 fun localProp(name: String, default: String = ""): String =
     (localProps.getProperty(name) ?: System.getenv(name) ?: default)
 
+val computedVersionCode = localProp("APP_VERSION_CODE").toIntOrNull()
+    ?: System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+    ?: (System.currentTimeMillis() / 1000L).toInt()
+val signingStoreFilePath = localProp("ANDROID_SIGNING_STORE_FILE")
+val signingStoreType = localProp("ANDROID_SIGNING_STORE_TYPE")
+val signingStorePassword = localProp("ANDROID_SIGNING_STORE_PASSWORD")
+val signingKeyAlias = localProp("ANDROID_SIGNING_KEY_ALIAS")
+val signingKeyPassword = localProp("ANDROID_SIGNING_KEY_PASSWORD")
+val hasStableSigning = signingStoreFilePath.isNotBlank() &&
+    signingStorePassword.isNotBlank() &&
+    signingKeyAlias.isNotBlank() &&
+    signingKeyPassword.isNotBlank() &&
+    rootProject.file(signingStoreFilePath).exists()
+
 android {
     namespace = "com.stockwatchdog.app"
     compileSdk = 34
+
+    signingConfigs {
+        if (hasStableSigning) {
+            create("stable") {
+                storeFile = rootProject.file(signingStoreFilePath)
+                if (signingStoreType.isNotBlank()) {
+                    storeType = signingStoreType
+                }
+                storePassword = signingStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.stockwatchdog.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
+        versionCode = computedVersionCode
         versionName = "1.0.0"
 
         vectorDrawables { useSupportLibrary = true }
@@ -52,10 +80,17 @@ android {
             )
             // Private-use signing: default to debug signing so a release APK
             // can still be built and sideloaded without a custom keystore.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasStableSigning) {
+                signingConfigs.getByName("stable")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             isMinifyEnabled = false
+            if (hasStableSigning) {
+                signingConfig = signingConfigs.getByName("stable")
+            }
         }
     }
 
