@@ -18,7 +18,7 @@ import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
         PriceCacheEntity::class,
         PositionLotEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -81,6 +81,13 @@ abstract class AppDatabase : RoomDatabase() {
                     WHERE entryPrice IS NOT NULL AND entryPrice > 0
                     """.trimIndent()
                 )
+            }
+        }
+
+        /** v3 → v4: add optional `platform` column to position_lots. */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE position_lots ADD COLUMN platform TEXT")
             }
         }
     }

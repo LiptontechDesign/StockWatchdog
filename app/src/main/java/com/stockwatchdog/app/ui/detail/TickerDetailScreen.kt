@@ -214,12 +214,16 @@ fun TickerDetailScreen(
     }
 
     if (state.lotDialogOpen) {
+        val existingPlatforms = state.lots.mapNotNull { it.platform }.distinct()
         EditPositionDialog(
             entryPriceDraft = state.lotDialogPriceDraft,
             amountInvestedDraft = state.lotDialogAmountDraft,
+            platformDraft = state.lotDialogPlatformDraft,
+            existingPlatforms = existingPlatforms,
             isEditing = state.lotDialogEditingId != null,
             onEntryChange = vm::onLotPriceDraftChange,
             onAmountChange = vm::onLotAmountDraftChange,
+            onPlatformChange = vm::onLotPlatformDraftChange,
             onSave = { vm.saveLot() },
             onDismiss = { vm.closeLotDialog() }
         )
@@ -524,7 +528,7 @@ private fun PositionSection(
                 Spacer(Modifier.height(6.dp))
                 if (state.platformFeePercent > 0) {
                     Text(
-                        "Net returns include ${"%.2f".format(state.platformFeePercent)}% fees",
+                        "${"%.2f".format(state.platformFeePercent)}% fee deducted from returns",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -569,8 +573,11 @@ private fun PositionSection(
 
                 state.lots.forEachIndexed { index, lot ->
                     Spacer(Modifier.height(12.dp))
+                    val lotTitle = if (lot.platform != null)
+                        "Position ${index + 1} · ${lot.platform}"
+                    else "Position ${index + 1}"
                     LotCard(
-                        title = "Position ${index + 1}",
+                        title = lotTitle,
                         lot = lot,
                         pnl = lotPnlById[lot.id],
                         platformFeePercent = state.platformFeePercent,
@@ -671,9 +678,12 @@ private fun LotCard(
 private fun EditPositionDialog(
     entryPriceDraft: String,
     amountInvestedDraft: String,
+    platformDraft: String,
+    existingPlatforms: List<String>,
     isEditing: Boolean,
     onEntryChange: (String) -> Unit,
     onAmountChange: (String) -> Unit,
+    onPlatformChange: (String) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -701,6 +711,26 @@ private fun EditPositionDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = platformDraft,
+                    onValueChange = onPlatformChange,
+                    label = { Text("Platform / broker (optional)") },
+                    placeholder = { Text("e.g. Ndovu, Hisa") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (existingPlatforms.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        existingPlatforms.forEach { name ->
+                            AssistChip(
+                                onClick = { onPlatformChange(name) },
+                                label = { Text(name) }
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Enter the price per share you bought at and the total amount " +

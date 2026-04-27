@@ -32,5 +32,7 @@ data class PositionLotEntity(
     val symbol: String,
     val entryPrice: Double,
     val amountInvested: Double,
-    val addedAtMillis: Long = System.currentTimeMillis()
+    val addedAtMillis: Long = System.currentTimeMillis(),
+    /** Optional broker/platform name (e.g. "Ndovu", "Hisa"). */
+    val platform: String? = null
 )

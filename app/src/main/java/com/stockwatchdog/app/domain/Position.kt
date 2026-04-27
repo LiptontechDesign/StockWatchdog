@@ -6,9 +6,10 @@ import com.stockwatchdog.app.data.db.entities.PositionLotEntity
  * Aggregate P&L view for a position made up of one or more lots.
  *
  * - [totalInvested] = sum of amount invested across all lots
- * - [positionValue] = current market value (lot quantities × current price)
- * - [totalPnl]      = positionValue − totalInvested
- * - [percentPnl]    = totalPnl / totalInvested × 100
+ * - [positionValue] = fee-adjusted value (invested + net P&L). When no fee
+ *   is configured this equals the raw market value.
+ * - [totalPnl]      = net $ P&L after fee deduction from gain %
+ * - [percentPnl]    = gross gain % minus fee %
  * - [avgEntryPrice] = totalInvested / totalQuantity (weighted). Kept for
  *   internal use (e.g. "% vs entry" alert evaluation). Not shown in UI.
  * - [perLot]        = P&L breakdown per individual lot so each "Position N"
@@ -38,7 +39,7 @@ data class LotPnl(
     val pnl: Double?,
     /** current % gain/loss vs entry price. Null if no price. */
     val percentPnl: Double?,
-    /** current market value (quantity × currentPrice). Null if no price. */
+    /** fee-adjusted value (invested + net P&L). Null if no price. */
     val value: Double?
 )
 
@@ -56,20 +57,23 @@ object PositionCalculator {
         val totalInvested = lots.sumOf { it.amountInvested }
         val totalQuantity = lots.sumOf { safeQuantity(it) }
         val avgEntry = if (totalQuantity > 0) totalInvested / totalQuantity else null
-        val value = currentPrice?.let { price -> totalQuantity * price }
+        val rawValue = currentPrice?.let { price -> totalQuantity * price }
         // Fee is subtracted from the gain percentage, not from the invested amount.
-        val grossPct = if (totalInvested > 0.0 && value != null)
-            (value - totalInvested) / totalInvested * 100.0 else null
+        val grossPct = if (totalInvested > 0.0 && rawValue != null)
+            (rawValue - totalInvested) / totalInvested * 100.0 else null
         val pct = grossPct?.let { it - platformFeePercent.coerceAtLeast(0.0) }
         val pnl = if (pct != null) totalInvested * pct / 100.0 else null
+        // Fee-adjusted value: what you'd actually walk away with
+        val value = if (pnl != null) totalInvested + pnl else rawValue
 
         val perLot = lots.map { lot ->
             val q = safeQuantity(lot)
-            val lotValue = currentPrice?.let { q * it }
-            val lotGrossPct = if (lot.amountInvested > 0 && lotValue != null)
-                (lotValue - lot.amountInvested) / lot.amountInvested * 100.0 else null
+            val rawLotValue = currentPrice?.let { q * it }
+            val lotGrossPct = if (lot.amountInvested > 0 && rawLotValue != null)
+                (rawLotValue - lot.amountInvested) / lot.amountInvested * 100.0 else null
             val lotPct = lotGrossPct?.let { it - platformFeePercent.coerceAtLeast(0.0) }
             val lotPnl = if (lotPct != null) lot.amountInvested * lotPct / 100.0 else null
+            val lotValue = if (lotPnl != null) lot.amountInvested + lotPnl else rawLotValue
             LotPnl(
                 lotId = lot.id,
                 entryPrice = lot.entryPrice,

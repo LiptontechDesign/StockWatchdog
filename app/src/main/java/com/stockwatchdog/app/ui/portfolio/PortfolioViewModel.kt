@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 data class HoldingRow(
     val symbol: String,
     val name: String?,
+    val platform: String?,
     val totalInvested: Double,
     val currentValue: Double?,
     val pnl: Double?,
@@ -75,9 +76,11 @@ class PortfolioViewModel(
         forceRefreshQuotes: Boolean
     ) {
         _ui.update { it.copy(isRefreshing = true) }
-        val lotsBySymbol = allLots.groupBy { it.symbol }
+        // Group by (symbol, platform) so the same ticker on different brokers
+        // shows as separate holdings.
+        val lotGroups = allLots.groupBy { it.symbol to (it.platform ?: "") }
 
-        if (lotsBySymbol.isEmpty()) {
+        if (lotGroups.isEmpty()) {
             _ui.update {
                 it.copy(
                     holdings = emptyList(),
@@ -92,19 +95,23 @@ class PortfolioViewModel(
         }
 
         val holdings = mutableListOf<HoldingRow>()
+        // Cache quotes per symbol so we don't fetch the same ticker twice.
+        val quoteCache = mutableMapOf<String, Double?>()
 
-        for ((symbol, symbolLots) in lotsBySymbol) {
+        for (((symbol, platform), groupLots) in lotGroups) {
             val watchItem = watchlistDao.getBySymbol(symbol)
             val name = watchItem?.name
 
-            val currentPrice = when (val r = repo.getQuote(symbol, forceRefresh = forceRefreshQuotes)) {
-                is DataResult.Success -> r.value.price
-                is DataResult.Error -> null
+            val currentPrice = quoteCache.getOrPut(symbol) {
+                when (val r = repo.getQuote(symbol, forceRefresh = forceRefreshQuotes)) {
+                    is DataResult.Success -> r.value.price
+                    is DataResult.Error -> null
+                }
             }
 
             val positionPnl = PositionCalculator.calculate(
                 currentPrice = currentPrice,
-                lots = symbolLots,
+                lots = groupLots,
                 platformFeePercent = latestPlatformFeePercent
             )
 
@@ -117,6 +124,7 @@ class PortfolioViewModel(
                 HoldingRow(
                     symbol = symbol,
                     name = name,
+                    platform = platform.ifBlank { null },
                     totalInvested = invested,
                     currentValue = currentValue,
                     pnl = pnl,

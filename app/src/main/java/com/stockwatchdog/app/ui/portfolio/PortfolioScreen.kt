@@ -114,7 +114,7 @@ fun PortfolioScreen(
                 item {
                     PortfolioSummaryCard(state)
                 }
-                items(state.holdings, key = { it.symbol }) { holding ->
+                items(state.holdings, key = { "${it.symbol}::${it.platform ?: ""}" }) { holding ->
                     HoldingRow(
                         holding = holding,
                         platformFeePercent = state.platformFeePercent,
@@ -254,6 +254,14 @@ private fun HoldingRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
+                )
+            }
+            holding.platform?.let { platform ->
+                Text(
+                    platform,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
             Spacer(Modifier.height(2.dp))

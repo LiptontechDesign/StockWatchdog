@@ -48,6 +48,7 @@ data class DetailUiState(
     val lotDialogEditingId: Long? = null,
     val lotDialogPriceDraft: String = "",
     val lotDialogAmountDraft: String = "",
+    val lotDialogPlatformDraft: String = "",
     /** Confirm-delete: id of the lot waiting on user confirmation, or null. */
     val lotDeleteConfirmId: Long? = null,
     /** Confirm-delete alert: id of the alert waiting on user confirmation. */
@@ -280,7 +281,8 @@ class TickerDetailViewModel(
             lotDialogOpen = true,
             lotDialogEditingId = null,
             lotDialogPriceDraft = "",
-            lotDialogAmountDraft = ""
+            lotDialogAmountDraft = "",
+            lotDialogPlatformDraft = ""
         )
     }
 
@@ -292,7 +294,8 @@ class TickerDetailViewModel(
                 lotDialogOpen = true,
                 lotDialogEditingId = lotId,
                 lotDialogPriceDraft = trimmed(lot.entryPrice),
-                lotDialogAmountDraft = trimmed(lot.amountInvested)
+                lotDialogAmountDraft = trimmed(lot.amountInvested),
+                lotDialogPlatformDraft = lot.platform ?: ""
             )
         }
     }
@@ -302,12 +305,14 @@ class TickerDetailViewModel(
             lotDialogOpen = false,
             lotDialogEditingId = null,
             lotDialogPriceDraft = "",
-            lotDialogAmountDraft = ""
+            lotDialogAmountDraft = "",
+            lotDialogPlatformDraft = ""
         )
     }
 
     fun onLotPriceDraftChange(v: String) = _ui.update { it.copy(lotDialogPriceDraft = v) }
     fun onLotAmountDraftChange(v: String) = _ui.update { it.copy(lotDialogAmountDraft = v) }
+    fun onLotPlatformDraftChange(v: String) = _ui.update { it.copy(lotDialogPlatformDraft = v) }
 
     /** Create or update the lot currently in the dialog. */
     fun saveLot() {
@@ -327,20 +332,22 @@ class TickerDetailViewModel(
                     )
                 )
             }
+            val platform = s.lotDialogPlatformDraft.trim().ifBlank { null }
             val editingId = s.lotDialogEditingId
             if (editingId == null) {
                 positionLotDao.insert(
                     PositionLotEntity(
                         symbol = symbol,
                         entryPrice = entry,
-                        amountInvested = amount
+                        amountInvested = amount,
+                        platform = platform
                     )
                 )
             } else {
                 val existing = s.lots.firstOrNull { it.id == editingId }
                 if (existing != null) {
                     positionLotDao.update(
-                        existing.copy(entryPrice = entry, amountInvested = amount)
+                        existing.copy(entryPrice = entry, amountInvested = amount, platform = platform)
                     )
                 }
             }
@@ -349,7 +356,8 @@ class TickerDetailViewModel(
                     lotDialogOpen = false,
                     lotDialogEditingId = null,
                     lotDialogPriceDraft = "",
-                    lotDialogAmountDraft = ""
+                    lotDialogAmountDraft = "",
+                    lotDialogPlatformDraft = ""
                 )
             }
         }
