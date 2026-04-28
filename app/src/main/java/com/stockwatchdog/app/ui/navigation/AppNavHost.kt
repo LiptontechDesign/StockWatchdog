@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -28,6 +29,7 @@ import androidx.navigation.NavType
 import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.ui.alerts.AlertsScreen
 import com.stockwatchdog.app.ui.detail.TickerDetailScreen
+import com.stockwatchdog.app.ui.diptracker.DipTrackerScreen
 import com.stockwatchdog.app.ui.portfolio.PortfolioScreen
 import com.stockwatchdog.app.ui.settings.SettingsScreen
 import com.stockwatchdog.app.ui.watchlist.WatchlistScreen
@@ -35,6 +37,7 @@ import com.stockwatchdog.app.ui.watchlist.WatchlistScreen
 sealed class TopLevel(val route: String, val label: String) {
     data object Watchlist : TopLevel("watchlist", "Watchlist")
     data object Portfolio : TopLevel("portfolio", "Portfolio")
+    data object DipTracker : TopLevel("dip_tracker", "Dips")
     data object Alerts : TopLevel("alerts", "Alerts")
     data object Settings : TopLevel("settings", "Settings")
 }
@@ -65,6 +68,7 @@ fun AppNavHost(
     val showBottomBar = currentRoute in listOf(
         TopLevel.Watchlist.route,
         TopLevel.Portfolio.route,
+        TopLevel.DipTracker.route,
         TopLevel.Alerts.route,
         TopLevel.Settings.route
     )
@@ -73,7 +77,7 @@ fun AppNavHost(
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar {
-                    val items = listOf(TopLevel.Watchlist, TopLevel.Portfolio, TopLevel.Alerts, TopLevel.Settings)
+                    val items = listOf(TopLevel.Watchlist, TopLevel.Portfolio, TopLevel.DipTracker, TopLevel.Alerts, TopLevel.Settings)
                     items.forEach { item ->
                         val selected = backStack?.destination?.hierarchy
                             ?.any { it.route == item.route } == true
@@ -93,6 +97,7 @@ fun AppNavHost(
                                     imageVector = when (item) {
                                         TopLevel.Watchlist -> Icons.Default.ShowChart
                                         TopLevel.Portfolio -> Icons.Default.PieChart
+                                        TopLevel.DipTracker -> Icons.Default.TrendingDown
                                         TopLevel.Alerts -> Icons.Default.NotificationsActive
                                         TopLevel.Settings -> Icons.Default.Settings
                                     },
@@ -119,6 +124,12 @@ fun AppNavHost(
                 }
                 composable(TopLevel.Portfolio.route) {
                     PortfolioScreen(
+                        container = container,
+                        onOpenSymbol = { sym -> navController.navigate(Routes.detail(sym)) }
+                    )
+                }
+                composable(TopLevel.DipTracker.route) {
+                    DipTrackerScreen(
                         container = container,
                         onOpenSymbol = { sym -> navController.navigate(Routes.detail(sym)) }
                     )

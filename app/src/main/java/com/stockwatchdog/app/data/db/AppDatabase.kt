@@ -7,6 +7,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.Converters
+import com.stockwatchdog.app.data.db.entities.DipTrackerEntity
 import com.stockwatchdog.app.data.db.entities.PositionLotEntity
 import com.stockwatchdog.app.data.db.entities.PriceCacheEntity
 import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
@@ -16,9 +17,10 @@ import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
         WatchlistItemEntity::class,
         AlertEntity::class,
         PriceCacheEntity::class,
-        PositionLotEntity::class
+        PositionLotEntity::class,
+        DipTrackerEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -27,6 +29,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun alertDao(): AlertDao
     abstract fun priceCacheDao(): PriceCacheDao
     abstract fun positionLotDao(): PositionLotDao
+    abstract fun dipTrackerDao(): DipTrackerDao
 
     companion object {
         /** v1 → v2: add manual entry-position fields to the watchlist table. */
@@ -88,6 +91,27 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_3_4: Migration = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE position_lots ADD COLUMN platform TEXT")
+            }
+        }
+
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS dip_tracker (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        buyZoneLow REAL NOT NULL,
+                        buyZoneHigh REAL NOT NULL,
+                        strongBuyBelow REAL,
+                        notes TEXT,
+                        addedAtMillis INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_dip_tracker_symbol ON dip_tracker(symbol)"
+                )
             }
         }
     }
