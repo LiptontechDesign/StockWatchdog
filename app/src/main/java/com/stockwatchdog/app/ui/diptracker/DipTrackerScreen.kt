@@ -64,6 +64,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.stockwatchdog.app.di.AppContainer
+import com.stockwatchdog.app.domain.Quote
 import com.stockwatchdog.app.domain.SymbolMatch
 import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.theme.NegativeRed
@@ -482,7 +483,7 @@ private fun EditDipDialog(
     searchResults: List<SymbolMatch>,
     isSearching: Boolean,
     selectedSymbol: SymbolMatch?,
-    selectedQuote: com.stockwatchdog.app.domain.Quote?,
+    selectedQuote: Quote?,
     onSearchQueryChange: (String) -> Unit,
     onSelectSymbol: (SymbolMatch) -> Unit,
     onClearSymbol: () -> Unit,
