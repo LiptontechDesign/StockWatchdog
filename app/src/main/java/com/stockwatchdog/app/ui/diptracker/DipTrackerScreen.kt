@@ -21,11 +21,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,6 +64,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.stockwatchdog.app.di.AppContainer
+import com.stockwatchdog.app.domain.SymbolMatch
 import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.theme.NegativeRed
 import com.stockwatchdog.app.ui.theme.PositiveGreen
@@ -226,11 +230,21 @@ fun DipTrackerScreen(
             buyZoneHigh = state.buyZoneHighDraft,
             strongBuy = state.strongBuyDraft,
             notes = state.notesDraft,
+            searchQuery = state.searchQuery,
+            searchResults = state.searchResults,
+            isSearching = state.isSearching,
+            selectedSymbol = state.selectedSymbol,
+            selectedQuote = state.selectedQuote,
+            onSearchQueryChange = vm::onSearchQueryChange,
+            onSelectSymbol = vm::selectSymbol,
+            onClearSymbol = vm::clearSelectedSymbol,
             onSymbolChange = vm::onSymbolChange,
             onBuyZoneLowChange = vm::onBuyZoneLowChange,
             onBuyZoneHighChange = vm::onBuyZoneHighChange,
             onStrongBuyChange = vm::onStrongBuyChange,
             onNotesChange = vm::onNotesChange,
+            onApplyPresetBuyZone = vm::applyPresetBuyZone,
+            onApplyPresetStrongBuy = vm::applyPresetStrongBuy,
             onSave = vm::save,
             onDismiss = vm::closeDialog
         )
@@ -464,11 +478,21 @@ private fun EditDipDialog(
     buyZoneHigh: String,
     strongBuy: String,
     notes: String,
+    searchQuery: String,
+    searchResults: List<SymbolMatch>,
+    isSearching: Boolean,
+    selectedSymbol: SymbolMatch?,
+    selectedQuote: com.stockwatchdog.app.domain.Quote?,
+    onSearchQueryChange: (String) -> Unit,
+    onSelectSymbol: (SymbolMatch) -> Unit,
+    onClearSymbol: () -> Unit,
     onSymbolChange: (String) -> Unit,
     onBuyZoneLowChange: (String) -> Unit,
     onBuyZoneHighChange: (String) -> Unit,
     onStrongBuyChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
+    onApplyPresetBuyZone: (Double) -> Unit,
+    onApplyPresetStrongBuy: (Double) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -492,16 +516,129 @@ private fun EditDipDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = symbol,
-                    onValueChange = onSymbolChange,
-                    label = { Text("Symbol") },
-                    placeholder = { Text("e.g. VOO, AAPL") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isEditing
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (selectedSymbol == null) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        label = { Text("Search symbol") },
+                        placeholder = { Text("e.g. Apple, AAPL") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null)
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (isSearching) {
+                        Box(
+                            Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        }
+                    } else if (searchResults.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                        ) {
+                            LazyColumn(
+                                modifier = Modifier.heightIn(max = 200.dp),
+                                verticalArrangement = Arrangement.spacedBy(0.dp)
+                            ) {
+                                items(searchResults) { match ->
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onSelectSymbol(match) }
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                match.symbol,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            match.name?.let {
+                                                Text(
+                                                    it,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                    HorizontalDivider()
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    ) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    selectedSymbol.symbol,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                selectedSymbol.name?.let {
+                                    Text(
+                                        it,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                selectedQuote?.let { quote ->
+                                    Text(
+                                        "Current: ${formatPrice(quote.price)}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            IconButton(onClick = onClearSymbol) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                            }
+                        }
+                    }
+                }
+
+                if (selectedSymbol != null) {
+                    Text(
+                        "Quick-set buy zone",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(5.0, 10.0, 20.0, 30.0, 40.0).forEach { pct ->
+                            AssistChip(
+                                onClick = { onApplyPresetBuyZone(pct) },
+                                label = { Text("${pct.toInt()}%") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -513,7 +650,8 @@ private fun EditDipDialog(
                         placeholder = { Text("92.00") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        enabled = selectedSymbol != null || isEditing
                     )
                     OutlinedTextField(
                         value = buyZoneHigh,
@@ -522,9 +660,19 @@ private fun EditDipDialog(
                         placeholder = { Text("96.00") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        enabled = selectedSymbol != null || isEditing
                     )
                 }
+
+                if (low != null && low > 0) {
+                    AssistChip(
+                        onClick = { onApplyPresetStrongBuy(10.0) },
+                        label = { Text("Set strong buy 10% below zone low") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
                 OutlinedTextField(
                     value = strongBuy,
                     onValueChange = onStrongBuyChange,
@@ -532,7 +680,8 @@ private fun EditDipDialog(
                     placeholder = { Text("88.00") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = selectedSymbol != null || isEditing
                 )
                 OutlinedTextField(
                     value = notes,
@@ -540,7 +689,8 @@ private fun EditDipDialog(
                     label = { Text("Notes / thesis (optional)") },
                     placeholder = { Text("e.g. good ETF, wait for pullback") },
                     maxLines = 3,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = selectedSymbol != null || isEditing
                 )
             }
         },

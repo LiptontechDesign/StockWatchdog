@@ -6,6 +6,10 @@ import com.stockwatchdog.app.data.api.MarketDataRepository
 import com.stockwatchdog.app.data.db.DipTrackerDao
 import com.stockwatchdog.app.data.db.entities.DipTrackerEntity
 import com.stockwatchdog.app.domain.DataResult
+import com.stockwatchdog.app.domain.Quote
+import com.stockwatchdog.app.domain.SymbolMatch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,7 +45,12 @@ data class DipTrackerUiState(
     val strongBuyDraft: String = "",
     val notesDraft: String = "",
     val confirmDeleteId: Long? = null,
-    val undoDeleteEntity: DipTrackerEntity? = null
+    val undoDeleteEntity: DipTrackerEntity? = null,
+    val searchQuery: String = "",
+    val searchResults: List<SymbolMatch> = emptyList(),
+    val isSearching: Boolean = false,
+    val selectedSymbol: SymbolMatch? = null,
+    val selectedQuote: Quote? = null
 )
 
 class DipTrackerViewModel(
@@ -53,6 +62,7 @@ class DipTrackerViewModel(
     val ui: StateFlow<DipTrackerUiState> = _ui.asStateFlow()
 
     private var latestEntities: List<DipTrackerEntity> = emptyList()
+    private var searchJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -135,22 +145,35 @@ class DipTrackerViewModel(
             buyZoneLowDraft = "",
             buyZoneHighDraft = "",
             strongBuyDraft = "",
-            notesDraft = ""
+            notesDraft = "",
+            searchQuery = "",
+            searchResults = emptyList(),
+            isSearching = false,
+            selectedSymbol = null,
+            selectedQuote = null
         )
     }
 
     fun openEditDialog(id: Long) {
         val entity = latestEntities.firstOrNull { it.id == id } ?: return
-        _ui.update {
-            it.copy(
-                dialogOpen = true,
-                dialogEditingId = id,
-                symbolDraft = entity.symbol,
-                buyZoneLowDraft = trimTrailingZeros(entity.buyZoneLow),
-                buyZoneHighDraft = trimTrailingZeros(entity.buyZoneHigh),
-                strongBuyDraft = entity.strongBuyBelow?.let(::trimTrailingZeros) ?: "",
-                notesDraft = entity.notes ?: ""
-            )
+        viewModelScope.launch {
+            val quote = when (val res = repo.getQuote(entity.symbol)) {
+                is DataResult.Success -> res.value
+                is DataResult.Error -> null
+            }
+            _ui.update {
+                it.copy(
+                    dialogOpen = true,
+                    dialogEditingId = id,
+                    symbolDraft = entity.symbol,
+                    buyZoneLowDraft = trimTrailingZeros(entity.buyZoneLow),
+                    buyZoneHighDraft = trimTrailingZeros(entity.buyZoneHigh),
+                    strongBuyDraft = entity.strongBuyBelow?.let(::trimTrailingZeros) ?: "",
+                    notesDraft = entity.notes ?: "",
+                    selectedSymbol = SymbolMatch(entity.symbol, quote?.name, null, null),
+                    selectedQuote = quote
+                )
+            }
         }
     }
 
@@ -162,8 +185,80 @@ class DipTrackerViewModel(
             buyZoneLowDraft = "",
             buyZoneHighDraft = "",
             strongBuyDraft = "",
-            notesDraft = ""
+            notesDraft = "",
+            searchQuery = "",
+            searchResults = emptyList(),
+            isSearching = false,
+            selectedSymbol = null,
+            selectedQuote = null
         )
+    }
+
+    fun onSearchQueryChange(v: String) {
+        _ui.update { it.copy(searchQuery = v) }
+        searchJob?.cancel()
+        if (v.length >= 2) {
+            searchJob = viewModelScope.launch {
+                delay(300)
+                _ui.update { it.copy(isSearching = true) }
+                when (val res = repo.search(v)) {
+                    is DataResult.Success -> _ui.update { it.copy(searchResults = res.value, isSearching = false) }
+                    is DataResult.Error -> _ui.update { it.copy(searchResults = emptyList(), isSearching = false) }
+                }
+            }
+        } else {
+            _ui.update { it.copy(searchResults = emptyList(), isSearching = false) }
+        }
+    }
+
+    fun selectSymbol(match: SymbolMatch) {
+        searchJob?.cancel()
+        viewModelScope.launch {
+            _ui.update { it.copy(isSearching = true, searchQuery = "", searchResults = emptyList()) }
+            val quote = when (val res = repo.getQuote(match.symbol)) {
+                is DataResult.Success -> res.value
+                is DataResult.Error -> null
+            }
+            _ui.update {
+                it.copy(
+                    selectedSymbol = match,
+                    selectedQuote = quote,
+                    symbolDraft = match.symbol,
+                    isSearching = false
+                )
+            }
+        }
+    }
+
+    fun clearSelectedSymbol() {
+        _ui.update {
+            it.copy(
+                selectedSymbol = null,
+                selectedQuote = null,
+                symbolDraft = "",
+                buyZoneLowDraft = "",
+                buyZoneHighDraft = "",
+                strongBuyDraft = ""
+            )
+        }
+    }
+
+    fun applyPresetBuyZone(percentBelow: Double) {
+        val price = _ui.value.selectedQuote?.price ?: return
+        val high = price * (1 - percentBelow / 100)
+        val low = high * 0.98
+        _ui.update {
+            it.copy(
+                buyZoneHighDraft = trimTrailingZeros(high),
+                buyZoneLowDraft = trimTrailingZeros(low)
+            )
+        }
+    }
+
+    fun applyPresetStrongBuy(percentBelowLow: Double) {
+        val low = _ui.value.buyZoneLowDraft.toDoubleOrNull() ?: return
+        val strongBuy = low * (1 - percentBelowLow / 100)
+        _ui.update { it.copy(strongBuyDraft = trimTrailingZeros(strongBuy)) }
     }
 
     fun onSymbolChange(v: String) = _ui.update { it.copy(symbolDraft = v) }
