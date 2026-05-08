@@ -29,6 +29,24 @@ val hasStableSigning = signingStoreFilePath.isNotBlank() &&
     signingKeyPassword.isNotBlank() &&
     rootProject.file(signingStoreFilePath).exists()
 
+// CI guard: fail loudly if the stable signing keystore isn't available in
+// a CI run. This prevents any future CI build from silently falling back to
+// the per-runner debug key, which would force every user to uninstall the
+// previous version before updating. All CI APKs must use the stable
+// LiptontechDesign keystore so install-on-top works forever.
+val isCi: Boolean = System.getenv("CI") == "true" ||
+    System.getenv("GITHUB_ACTIONS") == "true"
+if (isCi && !hasStableSigning) {
+    throw GradleException(
+        "CI build refused: the stable signing keystore is not loaded.\n" +
+            "All CI builds MUST use the same stable keystore so installed users " +
+            "can update without uninstalling.\n" +
+            "Fix: confirm GitHub Secrets ANDROID_SIGNING_KEYSTORE_BASE64, " +
+            "ANDROID_SIGNING_STORE_PASSWORD, ANDROID_SIGNING_KEY_ALIAS, and " +
+            "ANDROID_SIGNING_KEY_PASSWORD are configured for this repo."
+    )
+}
+
 android {
     namespace = "com.stockwatchdog.app"
     compileSdk = 34

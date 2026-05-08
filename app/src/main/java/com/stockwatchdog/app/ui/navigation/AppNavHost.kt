@@ -30,8 +30,7 @@ import androidx.navigation.NavType
 import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.ui.alerts.AlertsScreen
 import com.stockwatchdog.app.ui.detail.TickerDetailScreen
-import com.stockwatchdog.app.ui.dipfinder.DipFinderScreen
-import com.stockwatchdog.app.ui.diptracker.DipTrackerScreen
+import com.stockwatchdog.app.ui.dip.DipScreen
 import com.stockwatchdog.app.ui.portfolio.PortfolioScreen
 import com.stockwatchdog.app.ui.settings.SettingsScreen
 import com.stockwatchdog.app.ui.watchlist.WatchlistScreen
@@ -39,8 +38,7 @@ import com.stockwatchdog.app.ui.watchlist.WatchlistScreen
 sealed class TopLevel(val route: String, val label: String) {
     data object Watchlist : TopLevel("watchlist", "Watchlist")
     data object Portfolio : TopLevel("portfolio", "Portfolio")
-    data object DipFinder : TopLevel("dip_finder", "Finder")
-    data object DipTracker : TopLevel("dip_tracker", "Tracker")
+    data object Dip : TopLevel("dip", "Dip")
     data object Alerts : TopLevel("alerts", "Alerts")
     data object Settings : TopLevel("settings", "Settings")
 }
@@ -71,8 +69,7 @@ fun AppNavHost(
     val showBottomBar = currentRoute in listOf(
         TopLevel.Watchlist.route,
         TopLevel.Portfolio.route,
-        TopLevel.DipFinder.route,
-        TopLevel.DipTracker.route,
+        TopLevel.Dip.route,
         TopLevel.Alerts.route,
         TopLevel.Settings.route
     )
@@ -84,8 +81,7 @@ fun AppNavHost(
                     val items = listOf(
                         TopLevel.Watchlist,
                         TopLevel.Portfolio,
-                        TopLevel.DipFinder,
-                        TopLevel.DipTracker,
+                        TopLevel.Dip,
                         TopLevel.Alerts,
                         TopLevel.Settings
                     )
@@ -108,8 +104,7 @@ fun AppNavHost(
                                     imageVector = when (item) {
                                         TopLevel.Watchlist -> Icons.Default.ShowChart
                                         TopLevel.Portfolio -> Icons.Default.PieChart
-                                        TopLevel.DipFinder -> Icons.Default.Bolt
-                                        TopLevel.DipTracker -> Icons.Default.TrendingDown
+                                        TopLevel.Dip -> Icons.Default.TrendingDown
                                         TopLevel.Alerts -> Icons.Default.NotificationsActive
                                         TopLevel.Settings -> Icons.Default.Settings
                                     },
@@ -140,14 +135,8 @@ fun AppNavHost(
                         onOpenSymbol = { sym -> navController.navigate(Routes.detail(sym)) }
                     )
                 }
-                composable(TopLevel.DipFinder.route) {
-                    DipFinderScreen(
-                        container = container,
-                        onOpenSymbol = { sym -> navController.navigate(Routes.detail(sym)) }
-                    )
-                }
-                composable(TopLevel.DipTracker.route) {
-                    DipTrackerScreen(
+                composable(TopLevel.Dip.route) {
+                    DipScreen(
                         container = container,
                         onOpenSymbol = { sym -> navController.navigate(Routes.detail(sym)) }
                     )
