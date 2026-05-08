@@ -7,6 +7,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.Converters
+import com.stockwatchdog.app.data.db.entities.DipFinderResultEntity
+import com.stockwatchdog.app.data.db.entities.DipFinderWatchlistEntity
 import com.stockwatchdog.app.data.db.entities.DipTrackerEntity
 import com.stockwatchdog.app.data.db.entities.PositionLotEntity
 import com.stockwatchdog.app.data.db.entities.PriceCacheEntity
@@ -18,9 +20,11 @@ import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
         AlertEntity::class,
         PriceCacheEntity::class,
         PositionLotEntity::class,
-        DipTrackerEntity::class
+        DipTrackerEntity::class,
+        DipFinderResultEntity::class,
+        DipFinderWatchlistEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -30,6 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun priceCacheDao(): PriceCacheDao
     abstract fun positionLotDao(): PositionLotDao
     abstract fun dipTrackerDao(): DipTrackerDao
+    abstract fun dipFinderDao(): DipFinderDao
 
     companion object {
         /** v1 → v2: add manual entry-position fields to the watchlist table. */
@@ -111,6 +116,50 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_dip_tracker_symbol ON dip_tracker(symbol)"
+                )
+            }
+        }
+
+        /**
+         * v5 → v6: introduce the Dip Finder feature. Adds two tables:
+         *  - `dip_finder_results`  cached analysis (one row per ticker)
+         *  - `dip_finder_watchlist` user-tracked tickers for the finder
+         *
+         * Both are additive — nothing in earlier tables is touched.
+         */
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS dip_finder_results (
+                        symbol TEXT NOT NULL PRIMARY KEY,
+                        name TEXT,
+                        currentPrice REAL,
+                        high52w REAL,
+                        low52w REAL,
+                        ma200 REAL,
+                        pctFromHigh REAL,
+                        pctFromLow REAL,
+                        nearLow INTEGER NOT NULL,
+                        revenueGrowthYoYPct REAL,
+                        profitMarginPct REAL,
+                        debtToEquity REAL,
+                        epsTtm REAL,
+                        score INTEGER NOT NULL,
+                        label TEXT NOT NULL,
+                        confidence TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        computedAtMillis INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS dip_finder_watchlist (
+                        symbol TEXT NOT NULL PRIMARY KEY,
+                        addedAtMillis INTEGER NOT NULL
+                    )
+                    """.trimIndent()
                 )
             }
         }

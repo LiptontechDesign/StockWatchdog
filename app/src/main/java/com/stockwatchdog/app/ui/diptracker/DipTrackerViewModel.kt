@@ -26,6 +26,20 @@ enum class ZoneStatus(val label: String) {
     NO_DATA("--")
 }
 
+enum class DipSortMode(val label: String) {
+    URGENCY("Urgency"),
+    SYMBOL("Symbol"),
+    DISTANCE("Distance"),
+    PRICE("Price")
+}
+
+enum class DipFilterMode(val label: String) {
+    ALL("All"),
+    READY("Ready"),
+    NEAR("Near"),
+    WATCHING("Watching")
+}
+
 data class DipRow(
     val entity: DipTrackerEntity,
     val currentPrice: Double? = null,
@@ -36,7 +50,15 @@ data class DipRow(
 
 data class DipTrackerUiState(
     val rows: List<DipRow> = emptyList(),
+    val allRowsCount: Int = 0,
+    val readyCount: Int = 0,
+    val nearCount: Int = 0,
+    val watchingCount: Int = 0,
     val isRefreshing: Boolean = false,
+    val lastUpdatedAtMs: Long? = null,
+    val sortMode: DipSortMode = DipSortMode.URGENCY,
+    val filterMode: DipFilterMode = DipFilterMode.ALL,
+    val groupByStatus: Boolean = true,
     val dialogOpen: Boolean = false,
     val dialogEditingId: Long? = null,
     val symbolDraft: String = "",
@@ -62,6 +84,7 @@ class DipTrackerViewModel(
     val ui: StateFlow<DipTrackerUiState> = _ui.asStateFlow()
 
     private var latestEntities: List<DipTrackerEntity> = emptyList()
+    private var rawRows: List<DipRow> = emptyList()
     private var searchJob: Job? = null
 
     init {
@@ -95,12 +118,73 @@ class DipTrackerViewModel(
                 status = status,
                 distanceToBuyZonePct = distPct
             )
-        }.sortedWith(
-            compareBy<DipRow> { statusRank(it.status) }
-                .thenBy { it.distanceToBuyZonePct ?: Double.MAX_VALUE }
-                .thenBy { it.entity.symbol }
-        )
-        _ui.update { it.copy(rows = rows, isRefreshing = false) }
+        }
+        rawRows = rows
+        val anyData = rows.any { it.status != ZoneStatus.NO_DATA }
+        _ui.update { current ->
+            current.copy(
+                rows = applyFilterSort(rows, current.sortMode, current.filterMode),
+                allRowsCount = rows.size,
+                readyCount = rows.count { it.status == ZoneStatus.STRONG_BUY || it.status == ZoneStatus.IN_BUY_ZONE },
+                nearCount = rows.count { it.status == ZoneStatus.NEAR_ZONE },
+                watchingCount = rows.count {
+                    it.status == ZoneStatus.ABOVE_ZONE || it.status == ZoneStatus.BELOW_ZONE || it.status == ZoneStatus.NO_DATA
+                },
+                isRefreshing = false,
+                lastUpdatedAtMs = if (anyData) System.currentTimeMillis() else current.lastUpdatedAtMs
+            )
+        }
+    }
+
+    private fun applyFilterSort(
+        rows: List<DipRow>,
+        sort: DipSortMode,
+        filter: DipFilterMode
+    ): List<DipRow> {
+        val filtered = when (filter) {
+            DipFilterMode.ALL -> rows
+            DipFilterMode.READY -> rows.filter {
+                it.status == ZoneStatus.STRONG_BUY || it.status == ZoneStatus.IN_BUY_ZONE
+            }
+            DipFilterMode.NEAR -> rows.filter { it.status == ZoneStatus.NEAR_ZONE }
+            DipFilterMode.WATCHING -> rows.filter {
+                it.status == ZoneStatus.ABOVE_ZONE ||
+                    it.status == ZoneStatus.BELOW_ZONE ||
+                    it.status == ZoneStatus.NO_DATA
+            }
+        }
+        return when (sort) {
+            DipSortMode.URGENCY -> filtered.sortedWith(
+                compareBy<DipRow> { statusRank(it.status) }
+                    .thenBy { it.distanceToBuyZonePct ?: Double.MAX_VALUE }
+                    .thenBy { it.entity.symbol }
+            )
+            DipSortMode.SYMBOL -> filtered.sortedBy { it.entity.symbol }
+            DipSortMode.DISTANCE -> filtered.sortedBy { it.distanceToBuyZonePct ?: Double.MAX_VALUE }
+            DipSortMode.PRICE -> filtered.sortedByDescending { it.currentPrice ?: -1.0 }
+        }
+    }
+
+    fun onSortModeChange(mode: DipSortMode) {
+        _ui.update { current ->
+            current.copy(
+                sortMode = mode,
+                rows = applyFilterSort(rawRows, mode, current.filterMode)
+            )
+        }
+    }
+
+    fun onFilterModeChange(mode: DipFilterMode) {
+        _ui.update { current ->
+            current.copy(
+                filterMode = mode,
+                rows = applyFilterSort(rawRows, current.sortMode, mode)
+            )
+        }
+    }
+
+    fun toggleGroupByStatus() {
+        _ui.update { it.copy(groupByStatus = !it.groupByStatus) }
     }
 
     private fun statusRank(status: ZoneStatus): Int = when (status) {

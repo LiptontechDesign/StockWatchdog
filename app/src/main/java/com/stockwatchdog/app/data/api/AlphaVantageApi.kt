@@ -1,5 +1,6 @@
 package com.stockwatchdog.app.data.api
 
+import com.stockwatchdog.app.data.api.models.AlphaCompanyOverview
 import com.stockwatchdog.app.data.api.models.AlphaGlobalQuoteEnvelope
 import com.stockwatchdog.app.data.api.models.AlphaSymbolSearch
 import com.stockwatchdog.app.data.api.models.AlphaTimeSeriesDaily
@@ -35,4 +36,14 @@ interface AlphaVantageApi {
         @Query("outputsize") outputSize: String,
         @Query("apikey") apiKey: String
     ): AlphaTimeSeriesDaily
+
+    /**
+     * Free-tier company fundamentals. Daily limit is ~25 calls — used
+     * sparingly by the Dip Finder. Always cache the result.
+     */
+    @GET("query?function=OVERVIEW")
+    suspend fun overview(
+        @Query("symbol") symbol: String,
+        @Query("apikey") apiKey: String
+    ): AlphaCompanyOverview
 }

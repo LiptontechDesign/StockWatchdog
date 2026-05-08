@@ -73,3 +73,30 @@ data class AlphaCandle(
     @SerialName("4. close") val close: String? = null,
     @SerialName("5. volume") val volume: String? = null
 )
+
+/**
+ * Subset of the Alpha Vantage `OVERVIEW` endpoint response we actually
+ * use for the Dip Finder. The endpoint returns ~60 fields; we only
+ * deserialize the ones that drive the dip score so the JSON cost stays
+ * tiny. Free-tier limits apply (~25 calls/day total across all symbols).
+ *
+ * `"Note"` and `"Information"` come back when the free-tier daily limit
+ * has been exceeded — callers must surface them as a friendly error.
+ */
+@Serializable
+data class AlphaCompanyOverview(
+    @SerialName("Symbol") val symbol: String? = null,
+    @SerialName("Name") val name: String? = null,
+    @SerialName("Description") val description: String? = null,
+    @SerialName("EPS") val eps: String? = null,
+    @SerialName("ProfitMargin") val profitMargin: String? = null,
+    @SerialName("OperatingMarginTTM") val operatingMargin: String? = null,
+    @SerialName("QuarterlyRevenueGrowthYOY") val quarterlyRevenueGrowthYoY: String? = null,
+    @SerialName("QuarterlyEarningsGrowthYOY") val quarterlyEarningsGrowthYoY: String? = null,
+    @SerialName("DebtToEquity") val debtToEquity: String? = null,
+    @SerialName("52WeekHigh") val high52w: String? = null,
+    @SerialName("52WeekLow") val low52w: String? = null,
+    @SerialName("200DayMovingAverage") val ma200: String? = null,
+    @SerialName("Note") val note: String? = null,
+    @SerialName("Information") val information: String? = null
+)

@@ -3,6 +3,7 @@ package com.stockwatchdog.app.di
 import android.content.Context
 import androidx.room.Room
 import com.stockwatchdog.app.data.api.AlphaVantageApi
+import com.stockwatchdog.app.data.api.DipFinderRepository
 import com.stockwatchdog.app.data.api.FinnhubApi
 import com.stockwatchdog.app.data.api.MarketDataRepository
 import com.stockwatchdog.app.data.api.ProviderCooldown
@@ -82,7 +83,13 @@ class AppContainer(private val context: Context) {
         AppDatabase::class.java,
         "stockwatchdog.db"
     )
-        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
+        .addMigrations(
+            AppDatabase.MIGRATION_1_2,
+            AppDatabase.MIGRATION_2_3,
+            AppDatabase.MIGRATION_3_4,
+            AppDatabase.MIGRATION_4_5,
+            AppDatabase.MIGRATION_5_6
+        )
         .fallbackToDestructiveMigration()
         .build()
 
@@ -95,6 +102,16 @@ class AppContainer(private val context: Context) {
         yahooFinance = yahooFinance,
         settings = settingsRepository,
         priceCacheDao = database.priceCacheDao(),
+        cooldown = providerCooldown
+    )
+
+    val dipFinderRepository: DipFinderRepository = DipFinderRepository(
+        twelveData = twelveData,
+        alphaVantage = alphaVantage,
+        yahooFinance = yahooFinance,
+        market = marketDataRepository,
+        dao = database.dipFinderDao(),
+        settings = settingsRepository,
         cooldown = providerCooldown
     )
 }
