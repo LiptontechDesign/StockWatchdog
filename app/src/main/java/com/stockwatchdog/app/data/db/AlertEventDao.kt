@@ -16,6 +16,19 @@ interface AlertEventDao {
     @Query("SELECT COUNT(*) FROM alert_events WHERE firedAtMillis > :since")
     suspend fun countSince(since: Long): Int
 
+    @Query(
+        "SELECT COUNT(*) FROM alert_events " +
+            "WHERE symbol = :symbol AND type = :type AND threshold = :threshold " +
+            "AND firedAtMillis BETWEEN :fromMillis AND :toMillis"
+    )
+    suspend fun countForSymbolTypeThresholdInWindow(
+        symbol: String,
+        type: String,
+        threshold: Double,
+        fromMillis: Long,
+        toMillis: Long
+    ): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(event: AlertEventEntity): Long
 

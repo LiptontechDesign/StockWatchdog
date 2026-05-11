@@ -23,7 +23,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -82,8 +81,11 @@ import com.stockwatchdog.app.ui.theme.NegativeRed
 import com.stockwatchdog.app.ui.theme.PositiveGreen
 import com.stockwatchdog.app.util.MarketClock
 import kotlinx.coroutines.delay
+import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 // ── Status palette ──────────────────────────────────────────────────────
 private val StrongBuyColor = Color(0xFF2E7D32)
@@ -94,6 +96,8 @@ private val BelowZoneColor = NegativeRed
 private val EarningsColor = Color(0xFF6C5CE7)
 private val MarketOpenColor = Color(0xFF2E7D32)
 private val MarketClosedColor = Color(0xFF8E8E93)
+private val NairobiZone: ZoneId = ZoneId.of("Africa/Nairobi")
+private val ReleaseDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d")
 
 @Composable
 private fun statusColor(status: ZoneStatus): Color = when (status) {
@@ -389,7 +393,6 @@ private fun TrackerSummaryCard(rows: List<DipRow>) {
     val ready = rows.count { it.status == ZoneStatus.STRONG_BUY || it.status == ZoneStatus.IN_BUY_ZONE }
     val near = rows.count { it.status == ZoneStatus.NEAR_ZONE }
     val total = rows.size
-    val nextEarnings: Pair<DipRow, Long>? = null
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -410,44 +413,6 @@ private fun TrackerSummaryCard(rows: List<DipRow>) {
                 SummaryPill("$ready", "Ready", InBuyZoneColor, Modifier.weight(1f))
                 SummaryPill("$near", "Near", NearZoneColor, Modifier.weight(1f))
                 SummaryPill("$total", "Tracked", AboveZoneColor, Modifier.weight(1f))
-            }
-            if (nextEarnings != null) {
-                val (row, eps) = nextEarnings
-                val days = MarketClock.daysUntil(eps).coerceAtLeast(0)
-                val whenStr = MarketClock.formatKenyaLong(eps)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            EarningsColor.copy(alpha = 0.10f),
-                            RoundedCornerShape(10.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        Icons.Default.CalendarMonth,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = EarningsColor
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "Next earnings: ${row.entity.symbol}",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = EarningsColor
-                        )
-                        Text(
-                            "$whenStr · in $days day${if (days == 1L) "" else "s"}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
             }
         }
     }
@@ -567,10 +532,13 @@ private fun DipRowCard(
             }
 
             // ── Buy zone bar (existing pattern, simplified) ──────────
-            BuyZoneBar(row = row, statusColor = statusCol)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                DipReleaseDateLine(row.details, nowMs)
+                BuyZoneBar(row = row, statusColor = statusCol)
+            }
 
             // ── Metric chips grid (2 rows of 2) ──────────────────────
-            MetricsGrid(row = row, nowMs = nowMs)
+            MetricsGrid(row = row)
 
             // ── Notes ───────────────────────────────────────────────
             row.entity.notes?.takeIf { it.isNotBlank() }?.let { note ->
@@ -583,6 +551,52 @@ private fun DipRowCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun DipReleaseDateLine(details: StockDetails?, nowMs: Long) {
+    val text = dipReleaseDateText(details, nowMs) ?: return
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = EarningsColor,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+private fun dipReleaseDateText(details: StockDetails?, nowMs: Long): String? {
+    details ?: return null
+    val epoch = details.nextEarningsEpochSeconds ?: return null
+    val nowDate = Instant.ofEpochMilli(nowMs).atZone(NairobiZone).toLocalDate()
+    val releaseDate = Instant.ofEpochSecond(epoch).atZone(NairobiZone).toLocalDate()
+    val days = ChronoUnit.DAYS.between(nowDate, releaseDate)
+    if (days < -3) return null
+
+    val dateText = (if (details.nextEarningsIsEstimate == true) "~" else "") +
+        releaseDate.format(ReleaseDateFormat)
+    val period = details.nextEarningsQuarterLabel
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::compactQuarterLabel)
+
+    return when {
+        days == 0L -> listOfNotNull(period, "results today").joinToString(" ")
+        days == 1L -> listOfNotNull(period, "results tomorrow").joinToString(" ")
+        days in 2..14 -> listOfNotNull(period, "results $dateText (${days}d)").joinToString(" ")
+        else -> listOfNotNull(period, "results $dateText").joinToString(" ")
+    }.replaceFirstChar { it.uppercaseChar() }
+}
+
+private fun compactQuarterLabel(label: String): String {
+    val match = Regex("""Q([1-4])\s+(\d{4})""").matchEntire(label.trim().uppercase())
+    return if (match != null) {
+        val q = match.groupValues[1]
+        val year = match.groupValues[2].takeLast(2)
+        "Q$q'$year"
+    } else {
+        label
     }
 }
 

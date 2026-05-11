@@ -16,7 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
@@ -39,11 +38,9 @@ import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.diptracker.DipRow
 import com.stockwatchdog.app.ui.theme.NegativeRed
 import com.stockwatchdog.app.ui.theme.PositiveGreen
-import com.stockwatchdog.app.util.MarketClock
 
 private val InBuyZone = PositiveGreen
 private val StrongBuy = Color(0xFF2E7D32)
-private val Earnings = Color(0xFF6C5CE7)
 private val Target = Color(0xFF009688)
 private val MA200 = Color(0xFFFF8A65)
 private val VolumeSpike = Color(0xFFFFC107)
@@ -257,40 +254,15 @@ internal fun BuyZoneBar(row: DipRow, statusColor: Color) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Metric grid (earnings countdown, last EPS, target, MA200, volume)
+// Metric grid (last EPS, target, MA200, volume)
 // ════════════════════════════════════════════════════════════════════════
 
 @Composable
-internal fun MetricsGrid(row: DipRow, nowMs: Long) {
+internal fun MetricsGrid(row: DipRow) {
     val d = row.details
 
     // Build metric tiles only for data we actually have.
     val tiles = buildList {
-        // Earnings countdown
-        d?.nextEarningsEpochSeconds?.let { eps ->
-            val days = MarketClock.daysUntil(eps, nowMs)
-            if (days > 21 || days < -3) return@let
-            val sub = if (days >= 0) MarketClock.formatKenyaLong(eps) else "Reported recently"
-            val period = d.nextEarningsQuarterLabel
-                ?.takeIf { it.isNotBlank() }
-                ?.let(::compactQuarterLabel)
-            val title = when {
-                days < 0 -> period?.let { "$it results out" } ?: "Results out"
-                days == 0L -> period?.let { "$it results today" } ?: "Results today"
-                days == 1L -> period?.let { "$it results tomorrow" } ?: "Results tomorrow"
-                else -> period?.let { "$it results in ${days}d" } ?: "Results in ${days}d"
-            }
-            val estimate = d.nextEarningsIsEstimate == true
-            add(
-                MetricTile(
-                    icon = Icons.Default.CalendarMonth,
-                    color = Earnings,
-                    title = title,
-                    sub = if (estimate && days >= 0) "$sub - estimate" else sub
-                )
-            )
-        }
-
         // Last quarter EPS surprise
         val surprise = d?.epsSurprisePct()
         if (surprise != null) {
@@ -412,17 +384,6 @@ internal fun MetricTileView(tile: MetricTile, modifier: Modifier = Modifier) {
 // ════════════════════════════════════════════════════════════════════════
 // Empty state
 // ════════════════════════════════════════════════════════════════════════
-
-private fun compactQuarterLabel(label: String): String {
-    val match = Regex("""Q([1-4])\s+(\d{4})""").matchEntire(label.trim().uppercase())
-    return if (match != null) {
-        val q = match.groupValues[1]
-        val year = match.groupValues[2].takeLast(2)
-        "Q$q'$year"
-    } else {
-        label
-    }
-}
 
 @Composable
 internal fun EmptyDipState(onAdd: () -> Unit) {

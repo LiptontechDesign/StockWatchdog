@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.stockwatchdog.app.StockWatchdogApp
+import com.stockwatchdog.app.data.api.StockDetails
+import com.stockwatchdog.app.data.db.AlertEventDao
 import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.AlertEventEntity
 import com.stockwatchdog.app.data.db.entities.AlertType
@@ -12,6 +14,8 @@ import com.stockwatchdog.app.domain.DataResult
 import com.stockwatchdog.app.notifications.NotificationHelper
 import com.stockwatchdog.app.util.MarketClock
 import kotlinx.coroutines.flow.first
+import java.time.Instant
+import java.time.ZonedDateTime
 
 /**
  * Periodic worker that:
@@ -43,19 +47,29 @@ class AlertCheckWorker(
         val positionLotDao = container.database.positionLotDao()
         val now = System.currentTimeMillis()
 
+        val trackedSymbols = (
+            watchlistDao.getAll().map { it.symbol } +
+                container.database.dipTrackerDao().getAll().map { it.symbol }
+            )
+            .map { it.trim().uppercase() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
         val enabled = alertDao.getAllEnabled()
-        if (enabled.isEmpty()) return Result.success()
 
         // Filter out snoozed alerts up front; their state is preserved.
         val active = enabled.filter { it.isActiveAt(now) }
-        if (active.isEmpty()) return Result.success()
+        if (active.isEmpty() && trackedSymbols.isEmpty()) return Result.success()
 
         val symbols = active.map { it.symbol }.distinct()
-        val quotes = container.marketDataRepository.refreshQuotes(symbols)
+        val quotes = if (symbols.isNotEmpty()) {
+            container.marketDataRepository.refreshQuotes(symbols)
+        } else emptyMap()
 
-        // Only fetch StockDetails when at least one alert needs them. Cached for 6h.
-        val needDetailsSyms = active.filter { it.type.requiresDetails() }
-            .map { it.symbol }.distinct()
+        // Fetch StockDetails only for alert/auto-earnings symbols that need them. Cached for 6h.
+        val needDetailsSyms = (
+            active.filter { it.type.requiresDetails() }.map { it.symbol } + trackedSymbols
+        ).distinct()
         val details = if (needDetailsSyms.isNotEmpty()) {
             container.stockDetailsRepository.getMany(needDetailsSyms)
         } else emptyMap()
@@ -79,6 +93,15 @@ class AlertCheckWorker(
         val isMarketOpen = MarketClock.status(MarketClock.Market.US_NYSE, now).isOpen
 
         var notifId = (now and 0x7fffffff).toInt()
+        notifId = fireAutomaticEarningsAlerts(
+            context = applicationContext,
+            alertEventDao = alertEventDao,
+            details = details.filterKeys { it in trackedSymbols },
+            now = now,
+            isQuietHours = isQuietHours,
+            startingNotificationId = notifId
+        )
+
         for (alert in active) {
             val res = quotes[alert.symbol] ?: continue
             if (res !is DataResult.Success) continue
@@ -148,6 +171,78 @@ private fun AlertEntity.isActiveAt(nowMillis: Long): Boolean {
     return enabled && nowMillis >= until
 }
 
+private suspend fun fireAutomaticEarningsAlerts(
+    context: Context,
+    alertEventDao: AlertEventDao,
+    details: Map<String, StockDetails>,
+    now: Long,
+    isQuietHours: Boolean,
+    startingNotificationId: Int
+): Int {
+    var notifId = startingNotificationId
+    val nowKenya = ZonedDateTime.ofInstant(
+        Instant.ofEpochMilli(now),
+        MarketClock.KENYA
+    )
+    val today = nowKenya.toLocalDate()
+    val dayStart = today.atStartOfDay(MarketClock.KENYA).toInstant().toEpochMilli()
+    val dayEnd = today.plusDays(1).atStartOfDay(MarketClock.KENYA).toInstant().toEpochMilli() - 1
+
+    for ((symbol, detail) in details) {
+        val eps = detail.nextEarningsEpochSeconds ?: continue
+        val releaseAt = ZonedDateTime.ofInstant(
+            Instant.ofEpochSecond(eps),
+            MarketClock.KENYA
+        )
+        val releaseDate = releaseAt.toLocalDate()
+
+        val (threshold, message) = when {
+            today == releaseDate.minusDays(1) -> {
+                AUTO_EARNINGS_DAY_BEFORE_THRESHOLD to
+                    "$symbol results tomorrow - ${MarketClock.formatKenyaLong(eps)}"
+            }
+            today == releaseDate && !nowKenya.toInstant().isBefore(releaseAt.toInstant()) -> {
+                AUTO_EARNINGS_RELEASE_THRESHOLD to
+                    "$symbol results release time - ${MarketClock.formatKenyaLong(eps)}"
+            }
+            else -> continue
+        }
+
+        val alreadyLogged = alertEventDao.countForSymbolTypeThresholdInWindow(
+            symbol = symbol,
+            type = AlertType.EARNINGS_REMINDER.name,
+            threshold = threshold,
+            fromMillis = dayStart,
+            toMillis = dayEnd
+        ) > 0
+        if (alreadyLogged) continue
+
+        alertEventDao.insert(
+            AlertEventEntity(
+                alertId = null,
+                symbol = symbol,
+                type = AlertType.EARNINGS_REMINDER.name,
+                message = message,
+                priceAtTrigger = null,
+                threshold = threshold,
+                firedAtMillis = now
+            )
+        )
+
+        if (!isQuietHours) {
+            NotificationHelper.show(
+                context = context,
+                notificationId = notifId++,
+                symbol = symbol,
+                title = "Results Alert: $symbol",
+                body = message
+            )
+        }
+    }
+
+    return notifId
+}
+
 private fun AlertType.requiresDetails(): Boolean = when (this) {
     AlertType.EARNINGS_REMINDER,
     AlertType.FIFTY_TWO_WEEK_HIGH,
@@ -158,3 +253,6 @@ private fun AlertType.requiresDetails(): Boolean = when (this) {
     AlertType.ANALYST_TARGET_REACH -> true
     else -> false
 }
+
+private const val AUTO_EARNINGS_RELEASE_THRESHOLD = 0.0
+private const val AUTO_EARNINGS_DAY_BEFORE_THRESHOLD = 1.0
