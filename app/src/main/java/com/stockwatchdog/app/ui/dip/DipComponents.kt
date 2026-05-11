@@ -32,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.stockwatchdog.app.data.api.StockDetails
 import com.stockwatchdog.app.ui.components.formatPrice
@@ -268,17 +269,24 @@ internal fun MetricsGrid(row: DipRow, nowMs: Long) {
         // Earnings countdown
         d?.nextEarningsEpochSeconds?.let { eps ->
             val days = MarketClock.daysUntil(eps, nowMs)
+            if (days > 21 || days < -3) return@let
             val sub = if (days >= 0) MarketClock.formatKenyaLong(eps) else "Reported recently"
-            val title = if (days < 0) "Earnings: just past"
-            else if (days == 0L) "Earnings TODAY"
-            else "Earnings in $days day${if (days == 1L) "" else "s"}"
+            val period = d.nextEarningsQuarterLabel
+                ?.takeIf { it.isNotBlank() }
+                ?.let(::compactQuarterLabel)
+            val title = when {
+                days < 0 -> period?.let { "$it results out" } ?: "Results out"
+                days == 0L -> period?.let { "$it results today" } ?: "Results today"
+                days == 1L -> period?.let { "$it results tomorrow" } ?: "Results tomorrow"
+                else -> period?.let { "$it results in ${days}d" } ?: "Results in ${days}d"
+            }
             val estimate = d.nextEarningsIsEstimate == true
             add(
                 MetricTile(
                     icon = Icons.Default.CalendarMonth,
                     color = Earnings,
-                    title = title + if (estimate) " (est.)" else "",
-                    sub = sub
+                    title = title,
+                    sub = if (estimate && days >= 0) "$sub - estimate" else sub
                 )
             )
         }
@@ -387,13 +395,15 @@ internal fun MetricTileView(tile: MetricTile, modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 tile.sub,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -402,6 +412,17 @@ internal fun MetricTileView(tile: MetricTile, modifier: Modifier = Modifier) {
 // ════════════════════════════════════════════════════════════════════════
 // Empty state
 // ════════════════════════════════════════════════════════════════════════
+
+private fun compactQuarterLabel(label: String): String {
+    val match = Regex("""Q([1-4])\s+(\d{4})""").matchEntire(label.trim().uppercase())
+    return if (match != null) {
+        val q = match.groupValues[1]
+        val year = match.groupValues[2].takeLast(2)
+        "Q$q'$year"
+    } else {
+        label
+    }
+}
 
 @Composable
 internal fun EmptyDipState(onAdd: () -> Unit) {

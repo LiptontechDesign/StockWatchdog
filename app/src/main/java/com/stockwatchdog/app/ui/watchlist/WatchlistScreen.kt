@@ -63,6 +63,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.domain.PositionCalculator
 import com.stockwatchdog.app.domain.Quote
+import com.stockwatchdog.app.ui.components.FinancialResultBadge
 import com.stockwatchdog.app.ui.components.changeColor
 import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.components.formatSignedChange
@@ -265,24 +266,29 @@ private fun WatchRowItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(
-                row.symbol,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    row.symbol,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                FinancialResultBadge(
+                    details = row.details,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .weight(1f, fill = false)
+                )
+            }
             val subtitle = row.name ?: row.quote?.name ?: row.error
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
-            }
-            watchlistContextLine(row)?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
@@ -321,33 +327,6 @@ private fun WatchRowItem(
             )
         }
     }
-}
-
-private fun watchlistContextLine(row: WatchRow): String? {
-    val details = row.details ?: return null
-    val parts = buildList {
-        details.nextEarningsEpochSeconds?.let { epoch ->
-            val date = java.time.Instant.ofEpochSecond(epoch)
-                .atZone(java.time.ZoneId.of("Africa/Nairobi"))
-                .format(java.time.format.DateTimeFormatter.ofPattern("MMM d"))
-            add("Next results $date${if (details.nextEarningsIsEstimate == true) " est" else ""}")
-        }
-        details.epsSurprisePct()?.let { surprise ->
-            val label = when {
-                surprise > 0.5 -> "beat"
-                surprise < -0.5 -> "miss"
-                else -> "in line"
-            }
-            add("Last EPS $label ${formatSignedPercent(surprise)}")
-        } ?: run {
-            val actual = details.lastEpsActual
-            val estimate = details.lastEpsEstimate
-            if (actual != null && estimate != null) {
-                add("Last EPS ${"%.2f".format(actual)} vs est ${"%.2f".format(estimate)}")
-            }
-        }
-    }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" - ")
 }
 
 @Composable

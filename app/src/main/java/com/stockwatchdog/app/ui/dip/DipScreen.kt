@@ -38,7 +38,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -165,6 +164,9 @@ fun DipScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { vm.openAddDialog() }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add stock")
+                    }
                     IconButton(onClick = { vm.refresh() }) {
                         if (state.isRefreshing) {
                             CircularProgressIndicator(
@@ -178,13 +180,6 @@ fun DipScreen(
                 }
             )
         },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { vm.openAddDialog() },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Add stock") }
-            )
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         LazyColumn(
@@ -192,7 +187,7 @@ fun DipScreen(
                 .fillMaxSize()
                 .padding(padding),
             contentPadding = PaddingValues(
-                start = 14.dp, end = 14.dp, top = 12.dp, bottom = 110.dp
+                start = 14.dp, end = 14.dp, top = 12.dp, bottom = 96.dp
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -394,10 +389,7 @@ private fun TrackerSummaryCard(rows: List<DipRow>) {
     val ready = rows.count { it.status == ZoneStatus.STRONG_BUY || it.status == ZoneStatus.IN_BUY_ZONE }
     val near = rows.count { it.status == ZoneStatus.NEAR_ZONE }
     val total = rows.size
-    val nextEarnings = rows
-        .mapNotNull { it.details?.nextEarningsEpochSeconds?.let { e -> it to e } }
-        .filter { it.second * 1000L > System.currentTimeMillis() }
-        .minByOrNull { it.second }
+    val nextEarnings: Pair<DipRow, Long>? = null
 
     Card(
         modifier = Modifier.fillMaxWidth(),

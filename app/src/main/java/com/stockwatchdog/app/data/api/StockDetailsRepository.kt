@@ -1,10 +1,16 @@
 package com.stockwatchdog.app.data.api
 
+import com.stockwatchdog.app.data.api.models.FinnhubEarningsCalendarEvent
 import com.stockwatchdog.app.data.api.models.YahooQuoteSummaryResult
+import com.stockwatchdog.app.data.prefs.SettingsRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * Fetches "extra" per-symbol details that don't fit in [Quote]:
@@ -22,6 +28,8 @@ import kotlinx.coroutines.withContext
  */
 class StockDetailsRepository(
     private val yahoo: YahooFinanceApi,
+    private val finnhub: FinnhubApi,
+    private val settings: SettingsRepository,
     private val cooldown: ProviderCooldown
 ) {
 
@@ -54,24 +62,20 @@ class StockDetailsRepository(
             }
         }
 
-        if (cooldown.isCoolingDown(YAHOO_SUMMARY_KEY)) return cachedOrNull(s)
+        val yahooDetails = if (cooldown.isCoolingDown(YAHOO_SUMMARY_KEY)) {
+            cachedOrNull(s)
+        } else {
+            fetchYahooDetails(s) ?: cachedOrNull(s)
+        }
 
-        val fresh = withContext(Dispatchers.IO) {
-            runCatching {
-                val env = yahoo.quoteSummary(s)
-                env.quoteSummary?.error?.description?.let { error(it) }
-                val result = env.quoteSummary?.result?.firstOrNull() ?: return@runCatching null
-                result.toDetails(s)
-            }.onFailure {
-                // Treat unauthorized/403 like a long cooldown; transient
-                // errors get a short cooldown.
-                val msg = it.message ?: ""
-                if ("401" in msg || "403" in msg || "Unauthorized" in msg) {
-                    cooldown.trip(YAHOO_SUMMARY_KEY, ProviderCooldown.PER_DAY_CAP_MS)
-                } else {
-                    cooldown.trip(YAHOO_SUMMARY_KEY, ProviderCooldown.PER_MINUTE_CAP_MS)
-                }
-            }.getOrNull()
+        val fresh = if (
+            yahooDetails == null ||
+            yahooDetails.nextEarningsEpochSeconds == null ||
+            yahooDetails.nextEarningsQuarterLabel == null
+        ) {
+            yahooDetails.withEarningsFallback(fetchFinnhubEarnings(s), s)
+        } else {
+            yahooDetails
         } ?: return cachedOrNull(s)
 
         lock.withLock {
@@ -103,6 +107,109 @@ class StockDetailsRepository(
 
     private companion object {
         const val YAHOO_SUMMARY_KEY = "YAHOO_QUOTE_SUMMARY"
+        const val FINNHUB_EARNINGS_KEY = "FINNHUB_EARNINGS"
+        val NAIROBI_ZONE: ZoneId = ZoneId.of("Africa/Nairobi")
+        val FINNHUB_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+    }
+
+    private suspend fun fetchYahooDetails(symbol: String): StockDetails? = withContext(Dispatchers.IO) {
+        runCatching {
+            val env = yahoo.quoteSummary(symbol)
+            env.quoteSummary?.error?.description?.let { error(it) }
+            val result = env.quoteSummary?.result?.firstOrNull() ?: return@runCatching null
+            result.toDetails(symbol)
+        }.onFailure {
+            // Treat unauthorized/403 like a long cooldown; transient errors get a short cooldown.
+            val msg = it.message ?: ""
+            if ("401" in msg || "403" in msg || "Unauthorized" in msg) {
+                cooldown.trip(YAHOO_SUMMARY_KEY, ProviderCooldown.PER_DAY_CAP_MS)
+            } else {
+                cooldown.trip(YAHOO_SUMMARY_KEY, ProviderCooldown.PER_MINUTE_CAP_MS)
+            }
+        }.getOrNull()
+    }
+
+    private suspend fun fetchFinnhubEarnings(symbol: String): StockDetails? {
+        if (cooldown.isCoolingDown(FINNHUB_EARNINGS_KEY)) return null
+        val apiKey = settings.settings.first().finnhubKey
+        if (apiKey.isBlank()) return null
+
+        val today = LocalDate.now(NAIROBI_ZONE)
+        val from = today.minusDays(3)
+        val to = today.plusMonths(15)
+
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val response = finnhub.earningsCalendar(
+                    from = from.format(FINNHUB_DATE),
+                    to = to.format(FINNHUB_DATE),
+                    symbol = symbol,
+                    apiKey = apiKey
+                )
+                val event = response.earningsCalendar
+                    .mapNotNull { event ->
+                        val rawDate = event.date ?: return@mapNotNull null
+                        val date = runCatching {
+                            LocalDate.parse(rawDate, FINNHUB_DATE)
+                        }.getOrNull() ?: return@mapNotNull null
+                        event to date
+                    }
+                    .let { events ->
+                        events
+                            .filter { !it.second.isBefore(today) }
+                            .minByOrNull { it.second }
+                            ?: events
+                                .filter { it.second.isBefore(today) && !it.second.isBefore(today.minusDays(3)) }
+                                .maxByOrNull { it.second }
+                    } ?: return@runCatching null
+
+                event.first.toDetails(symbol, event.second)
+            }.onFailure {
+                val msg = it.message ?: ""
+                val duration = if ("429" in msg || "limit" in msg.lowercase()) {
+                    ProviderCooldown.PER_MINUTE_CAP_MS
+                } else {
+                    ProviderCooldown.PER_MINUTE_CAP_MS
+                }
+                cooldown.trip(FINNHUB_EARNINGS_KEY, duration)
+            }.getOrNull()
+        }
+    }
+
+    private fun StockDetails?.withEarningsFallback(
+        fallback: StockDetails?,
+        symbol: String
+    ): StockDetails? {
+        fallback ?: return this
+        return this?.copy(
+            nextEarningsEpochSeconds = nextEarningsEpochSeconds ?: fallback.nextEarningsEpochSeconds,
+            nextEarningsIsEstimate = nextEarningsIsEstimate ?: fallback.nextEarningsIsEstimate,
+            nextEarningsQuarterLabel = nextEarningsQuarterLabel ?: fallback.nextEarningsQuarterLabel,
+            lastEpsActual = lastEpsActual ?: fallback.lastEpsActual,
+            lastEpsEstimate = lastEpsEstimate ?: fallback.lastEpsEstimate,
+            lastEpsQuarterLabel = lastEpsQuarterLabel ?: fallback.lastEpsQuarterLabel
+        ) ?: fallback.copy(symbol = symbol)
+    }
+
+    private fun FinnhubEarningsCalendarEvent.toDetails(
+        symbol: String,
+        date: LocalDate
+    ): StockDetails {
+        val eventEpoch = date.atStartOfDay(NAIROBI_ZONE).toEpochSecond()
+        val quarterLabel = quarter?.let { q ->
+            year?.let { "Q$q $it" } ?: "Q$q"
+        }
+        val hasReported = date.isBefore(LocalDate.now(NAIROBI_ZONE)) && epsActual != null
+
+        return StockDetails(
+            symbol = symbol,
+            nextEarningsEpochSeconds = eventEpoch,
+            nextEarningsIsEstimate = !hasReported,
+            nextEarningsQuarterLabel = quarterLabel,
+            lastEpsActual = if (hasReported) epsActual else null,
+            lastEpsEstimate = if (hasReported) epsEstimate else null,
+            lastEpsQuarterLabel = if (hasReported) quarterLabel else null
+        )
     }
 }
 
@@ -116,6 +223,7 @@ data class StockDetails(
     // Next earnings event
     val nextEarningsEpochSeconds: Long? = null,
     val nextEarningsIsEstimate: Boolean? = null,
+    val nextEarningsQuarterLabel: String? = null,
     // Last reported quarterly EPS surprise
     val lastEpsActual: Double? = null,
     val lastEpsEstimate: Double? = null,
@@ -182,12 +290,16 @@ data class StockDetails(
 
 private fun YahooQuoteSummaryResult.toDetails(symbol: String): StockDetails {
     val cal = calendarEvents?.earnings
-    val lastQ = earnings?.earningsChart?.quarterly?.lastOrNull()
+    val chart = earnings?.earningsChart
+    val lastQ = chart?.quarterly?.lastOrNull()
 
     return StockDetails(
         symbol = symbol,
         nextEarningsEpochSeconds = cal?.earningsDate?.firstOrNull()?.raw,
         nextEarningsIsEstimate = cal?.isEarningsDateEstimate,
+        nextEarningsQuarterLabel = chart?.let {
+            normaliseQuarterLabel(it.currentQuarterEstimateDate, it.currentQuarterEstimateYear)
+        },
         lastEpsActual = lastQ?.actual?.raw,
         lastEpsEstimate = lastQ?.estimate?.raw,
         lastEpsQuarterLabel = lastQ?.date,
@@ -204,4 +316,22 @@ private fun YahooQuoteSummaryResult.toDetails(symbol: String): StockDetails {
         averageVolume10Day = summaryDetail?.averageDailyVolume10Day?.raw,
         currentVolume = summaryDetail?.regularMarketVolume?.raw ?: summaryDetail?.volume?.raw
     )
+}
+
+private fun normaliseQuarterLabel(rawQuarter: String?, year: Int?): String? {
+    val quarter = rawQuarter
+        ?.trim()
+        ?.uppercase()
+        ?.let { value ->
+            val qFirst = Regex("""^Q([1-4])""").find(value)?.groupValues?.getOrNull(1)
+            val qLast = Regex("""^([1-4])Q""").find(value)?.groupValues?.getOrNull(1)
+            (qFirst ?: qLast)?.let { "Q$it" }
+        }
+
+    return when {
+        quarter != null && year != null -> "$quarter $year"
+        quarter != null -> quarter
+        year != null -> year.toString()
+        else -> null
+    }
 }

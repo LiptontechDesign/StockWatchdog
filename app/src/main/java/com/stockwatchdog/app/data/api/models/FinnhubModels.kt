@@ -39,3 +39,19 @@ data class FinnhubSymbolMatch(
     val displaySymbol: String? = null,
     val type: String? = null
 )
+
+@Serializable
+data class FinnhubEarningsCalendarResponse(
+    val earningsCalendar: List<FinnhubEarningsCalendarEvent> = emptyList()
+)
+
+@Serializable
+data class FinnhubEarningsCalendarEvent(
+    val date: String? = null,
+    val epsActual: Double? = null,
+    val epsEstimate: Double? = null,
+    val hour: String? = null,
+    val quarter: Int? = null,
+    val symbol: String? = null,
+    val year: Int? = null
+)

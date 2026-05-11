@@ -119,6 +119,8 @@ class AppContainer(private val context: Context) {
 
     val stockDetailsRepository: StockDetailsRepository = StockDetailsRepository(
         yahoo = yahooFinance,
+        finnhub = finnhub,
+        settings = settingsRepository,
         cooldown = providerCooldown
     )
 }
