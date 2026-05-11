@@ -877,6 +877,16 @@ private fun CreateAlertDialog(
                                     if (platformFeePercent > 0) "Net gain % (e.g. 10 for +10% after fees)" else "Gain % (e.g. 10 for +10%)"
                                 AlertType.PERCENT_BELOW_ENTRY ->
                                     if (platformFeePercent > 0) "Net loss % (e.g. 5 for -5% after fees)" else "Loss % (e.g. 5 for -5%)"
+                                AlertType.EARNINGS_REMINDER ->
+                                    "Days before earnings (e.g. 3)"
+                                AlertType.VOLUME_SPIKE ->
+                                    "Ratio (e.g. 2.0 for 2× average)"
+                                AlertType.FIFTY_TWO_WEEK_HIGH,
+                                AlertType.FIFTY_TWO_WEEK_LOW,
+                                AlertType.MA200_CROSS_UP,
+                                AlertType.MA200_CROSS_DOWN,
+                                AlertType.ANALYST_TARGET_REACH ->
+                                    "Threshold (unused)"
                             }
                         )
                     },

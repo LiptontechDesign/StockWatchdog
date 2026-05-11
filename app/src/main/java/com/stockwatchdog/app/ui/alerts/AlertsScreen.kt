@@ -596,8 +596,8 @@ private fun HistoryTab(
 @Composable
 private fun EventRow(event: AlertEventEntity, onOpenSymbol: () -> Unit) {
     val type = runCatching { AlertType.valueOf(event.type) }.getOrNull()
-    val (icon, accent) = type?.let(::iconAndColorFor)
-        ?: (Icons.Default.ShowChart to MaterialTheme.colorScheme.primary)
+    val (icon, accent) = if (type != null) iconAndColorFor(type)
+        else (Icons.Default.ShowChart to MaterialTheme.colorScheme.primary)
 
     Card(
         modifier = Modifier
