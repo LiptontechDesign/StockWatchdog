@@ -24,7 +24,23 @@ data class UserSettings(
     val platformFeePercent: Double = 0.0,
     val intervalMinutes: Int = 30,
     val notificationsEnabled: Boolean = true,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /**
+     * If true, alert notifications are suppressed when the local Kenya
+     * time falls inside [quietHoursStartMinutes, quietHoursEndMinutes].
+     * Triggers are still **logged** to the alert history so the user
+     * sees them in the morning.
+     */
+    val quietHoursEnabled: Boolean = false,
+    /** Start of quiet hours, minutes since 00:00 EAT. Defaults to 22:00. */
+    val quietHoursStartMinutes: Int = 22 * 60,
+    /** End of quiet hours, minutes since 00:00 EAT. Defaults to 07:00. */
+    val quietHoursEndMinutes: Int = 7 * 60,
+    /**
+     * Global default: only notify while NYSE is open. Individual alerts
+     * can override via AlertEntity.marketHoursOnly.
+     */
+    val marketHoursOnly: Boolean = false
 ) {
     /**
      * Key for a specific provider. Only meaningful when the user has forced
@@ -54,6 +70,10 @@ class SettingsRepository(private val context: Context) {
         val INTERVAL = intPreferencesKey("interval_minutes")
         val NOTIFS = booleanPreferencesKey("notifications")
         val THEME = stringPreferencesKey("theme")
+        val QUIET_HOURS_ENABLED = booleanPreferencesKey("quiet_hours_enabled")
+        val QUIET_HOURS_START = intPreferencesKey("quiet_hours_start")
+        val QUIET_HOURS_END = intPreferencesKey("quiet_hours_end")
+        val MARKET_HOURS_ONLY = booleanPreferencesKey("market_hours_only")
     }
 
     val settings: Flow<UserSettings> = context.dataStore.data.map { prefs ->
@@ -65,7 +85,11 @@ class SettingsRepository(private val context: Context) {
             platformFeePercent = prefs[Keys.PLATFORM_FEE_PERCENT] ?: 0.0,
             intervalMinutes = prefs[Keys.INTERVAL] ?: 30,
             notificationsEnabled = prefs[Keys.NOTIFS] ?: true,
-            themeMode = prefs[Keys.THEME]?.let(::runCatchingTheme) ?: ThemeMode.SYSTEM
+            themeMode = prefs[Keys.THEME]?.let(::runCatchingTheme) ?: ThemeMode.SYSTEM,
+            quietHoursEnabled = prefs[Keys.QUIET_HOURS_ENABLED] ?: false,
+            quietHoursStartMinutes = prefs[Keys.QUIET_HOURS_START] ?: (22 * 60),
+            quietHoursEndMinutes = prefs[Keys.QUIET_HOURS_END] ?: (7 * 60),
+            marketHoursOnly = prefs[Keys.MARKET_HOURS_ONLY] ?: false
         )
     }
 
@@ -92,6 +116,18 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setThemeMode(mode: ThemeMode) =
         context.dataStore.edit { it[Keys.THEME] = mode.name }
+
+    suspend fun setQuietHoursEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.QUIET_HOURS_ENABLED] = enabled }
+
+    suspend fun setQuietHoursRange(startMinutes: Int, endMinutes: Int) =
+        context.dataStore.edit {
+            it[Keys.QUIET_HOURS_START] = startMinutes.coerceIn(0, 24 * 60 - 1)
+            it[Keys.QUIET_HOURS_END] = endMinutes.coerceIn(0, 24 * 60 - 1)
+        }
+
+    suspend fun setMarketHoursOnly(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.MARKET_HOURS_ONLY] = enabled }
 
     private fun runCatchingProvider(raw: String): ApiProvider? =
         runCatching { ApiProvider.valueOf(raw) }.getOrNull()

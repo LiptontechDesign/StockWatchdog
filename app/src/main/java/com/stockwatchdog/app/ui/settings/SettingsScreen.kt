@@ -251,6 +251,72 @@ fun SettingsScreen(container: AppContainer) {
                     onCheckedChange = { vm.setNotificationsEnabled(it) }
                 )
             }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Only notify while NYSE is open")
+                    Text(
+                        "Suppress notifications outside US market hours. " +
+                            "Triggers are still saved to History.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = s.marketHoursOnly,
+                    onCheckedChange = { vm.setMarketHoursOnly(it) }
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Quiet hours (Kenya time)")
+                    Text(
+                        if (s.quietHoursEnabled)
+                            "${com.stockwatchdog.app.util.MarketClock.formatHm(s.quietHoursStartMinutes)} \u2192 " +
+                                "${com.stockwatchdog.app.util.MarketClock.formatHm(s.quietHoursEndMinutes)} EAT \u00b7 " +
+                                "alerts go to History only"
+                        else "Off \u00b7 alerts can fire at any time",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = s.quietHoursEnabled,
+                    onCheckedChange = { vm.setQuietHoursEnabled(it) }
+                )
+            }
+            if (s.quietHoursEnabled) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Quick presets",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val presets = listOf(
+                        Triple("22\u219207", 22 * 60, 7 * 60),
+                        Triple("23\u219206", 23 * 60, 6 * 60),
+                        Triple("00\u219208", 0, 8 * 60),
+                        Triple("21\u219208", 21 * 60, 8 * 60)
+                    )
+                    presets.forEach { (label, start, end) ->
+                        FilterChip(
+                            selected = s.quietHoursStartMinutes == start &&
+                                s.quietHoursEndMinutes == end,
+                            onClick = { vm.setQuietHoursRange(start, end) },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+            }
 
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()

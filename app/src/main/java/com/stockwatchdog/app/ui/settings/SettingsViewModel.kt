@@ -45,4 +45,13 @@ class SettingsViewModel(
     }
 
     fun setTheme(mode: ThemeMode) = viewModelScope.launch { repo.setThemeMode(mode) }
+
+    fun setQuietHoursEnabled(enabled: Boolean) =
+        viewModelScope.launch { repo.setQuietHoursEnabled(enabled) }
+
+    fun setQuietHoursRange(startMinutes: Int, endMinutes: Int) =
+        viewModelScope.launch { repo.setQuietHoursRange(startMinutes, endMinutes) }
+
+    fun setMarketHoursOnly(enabled: Boolean) =
+        viewModelScope.launch { repo.setMarketHoursOnly(enabled) }
 }

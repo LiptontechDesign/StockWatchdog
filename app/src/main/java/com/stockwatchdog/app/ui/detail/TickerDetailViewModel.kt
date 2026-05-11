@@ -192,6 +192,17 @@ class TickerDetailViewModel(
                             pct <= -threshold
                         } else false
                     }
+                    // Detail-screen "New alert" only exposes the five types
+                    // above; richer types (earnings, 52w, MA200, volume, target)
+                    // are created from the Alerts page. Default to "not yet
+                    // crossed" so the worker fires on the first observed match.
+                    AlertType.EARNINGS_REMINDER,
+                    AlertType.FIFTY_TWO_WEEK_HIGH,
+                    AlertType.FIFTY_TWO_WEEK_LOW,
+                    AlertType.MA200_CROSS_UP,
+                    AlertType.MA200_CROSS_DOWN,
+                    AlertType.VOLUME_SPIKE,
+                    AlertType.ANALYST_TARGET_REACH -> false
                 }
             }
             alertDao.insert(

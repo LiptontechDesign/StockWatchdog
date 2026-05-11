@@ -157,4 +157,35 @@ object MarketClock {
         val diffMs = epochSeconds * 1000L - nowMillis
         return diffMs / 86_400_000L
     }
+
+    /**
+     * Whether `nowUtcMillis` falls inside the user-configured Kenya-time
+     * quiet-hours window. The window is treated as a half-open range
+     * `[start, end)` with wrap-around past midnight (e.g. 22:00 \u2192 07:00).
+     */
+    fun isInQuietHoursKenya(
+        nowUtcMillis: Long,
+        startMinutes: Int,
+        endMinutes: Int
+    ): Boolean {
+        if (startMinutes == endMinutes) return false
+        val nowKenya = ZonedDateTime.ofInstant(
+            java.time.Instant.ofEpochMilli(nowUtcMillis),
+            KENYA
+        )
+        val nowMinutes = nowKenya.hour * 60 + nowKenya.minute
+        return if (startMinutes < endMinutes) {
+            nowMinutes in startMinutes until endMinutes
+        } else {
+            // Wrap-around: e.g. 22:00 \u2192 07:00 means "after start OR before end"
+            nowMinutes >= startMinutes || nowMinutes < endMinutes
+        }
+    }
+
+    /** Format minutes-since-midnight as `"22:00"`. */
+    fun formatHm(minutes: Int): String {
+        val h = (minutes / 60).coerceIn(0, 23)
+        val m = (minutes % 60).coerceIn(0, 59)
+        return "%02d:%02d".format(h, m)
+    }
 }

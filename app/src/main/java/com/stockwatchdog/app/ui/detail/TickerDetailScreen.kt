@@ -782,6 +782,16 @@ fun describeAlert(a: AlertEntity): String = when (a.type) {
     AlertType.PERCENT_CHANGE_DAY -> "Day change exceeds ${"%.2f".format(a.threshold)}%"
     AlertType.PERCENT_ABOVE_ENTRY -> "Net gain vs entry reaches +${"%.2f".format(a.threshold)}%"
     AlertType.PERCENT_BELOW_ENTRY -> "Net loss vs entry reaches -${"%.2f".format(a.threshold)}%"
+    AlertType.EARNINGS_REMINDER -> {
+        val days = a.threshold.toInt().coerceAtLeast(1)
+        "Earnings reminder \u00b7 $days day${if (days == 1) "" else "s"} before"
+    }
+    AlertType.FIFTY_TWO_WEEK_HIGH -> "Touches a new 52-week high"
+    AlertType.FIFTY_TWO_WEEK_LOW -> "Touches a new 52-week low"
+    AlertType.MA200_CROSS_UP -> "Crosses above 200-day MA"
+    AlertType.MA200_CROSS_DOWN -> "Crosses below 200-day MA"
+    AlertType.VOLUME_SPIKE -> "Volume \u2265 ${"%.1f".format(a.threshold)}\u00d7 average"
+    AlertType.ANALYST_TARGET_REACH -> "Reaches analyst price target"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

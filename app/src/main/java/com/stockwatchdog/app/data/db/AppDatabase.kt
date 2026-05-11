@@ -6,6 +6,7 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.stockwatchdog.app.data.db.entities.AlertEntity
+import com.stockwatchdog.app.data.db.entities.AlertEventEntity
 import com.stockwatchdog.app.data.db.entities.Converters
 import com.stockwatchdog.app.data.db.entities.DipFinderResultEntity
 import com.stockwatchdog.app.data.db.entities.DipFinderWatchlistEntity
@@ -18,19 +19,21 @@ import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
     entities = [
         WatchlistItemEntity::class,
         AlertEntity::class,
+        AlertEventEntity::class,
         PriceCacheEntity::class,
         PositionLotEntity::class,
         DipTrackerEntity::class,
         DipFinderResultEntity::class,
         DipFinderWatchlistEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun watchlistDao(): WatchlistDao
     abstract fun alertDao(): AlertDao
+    abstract fun alertEventDao(): AlertEventDao
     abstract fun priceCacheDao(): PriceCacheDao
     abstract fun positionLotDao(): PositionLotDao
     abstract fun dipTrackerDao(): DipTrackerDao
@@ -161,6 +164,45 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        /**
+         * v6 → v7: Alerts upgrade.
+         *  - New `alert_events` table records every fired alert so the
+         *    History tab can show what/when/why even after the system
+         *    notification has been dismissed.
+         *  - New columns on `alerts`: snooze, auto-disable-after-fire,
+         *    optional notes, per-alert market-hours-only override, and
+         *    last-known price (used by the UI to render distance-to-trigger).
+         */
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS alert_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        alertId INTEGER,
+                        symbol TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        priceAtTrigger REAL,
+                        threshold REAL,
+                        firedAtMillis INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_alert_events_symbol ON alert_events(symbol)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_alert_events_firedAtMillis ON alert_events(firedAtMillis)"
+                )
+                db.execSQL("ALTER TABLE alerts ADD COLUMN autoDisableAfterFire INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE alerts ADD COLUMN snoozedUntilMillis INTEGER")
+                db.execSQL("ALTER TABLE alerts ADD COLUMN notes TEXT")
+                db.execSQL("ALTER TABLE alerts ADD COLUMN marketHoursOnly INTEGER")
+                db.execSQL("ALTER TABLE alerts ADD COLUMN lastPrice REAL")
             }
         }
     }
