@@ -1,5 +1,6 @@
 package com.stockwatchdog.app.ui.dip
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -39,6 +40,7 @@ import kotlinx.coroutines.launch
  * working unchanged. The TabRow at the top doubles as a clear label of
  * what you're looking at and as a swipe target.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DipScreen(
     container: AppContainer,
