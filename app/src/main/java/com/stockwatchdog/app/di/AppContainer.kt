@@ -7,6 +7,7 @@ import com.stockwatchdog.app.data.api.DipFinderRepository
 import com.stockwatchdog.app.data.api.FinnhubApi
 import com.stockwatchdog.app.data.api.MarketDataRepository
 import com.stockwatchdog.app.data.api.ProviderCooldown
+import com.stockwatchdog.app.data.api.StockDetailsRepository
 import com.stockwatchdog.app.data.api.TwelveDataApi
 import com.stockwatchdog.app.data.api.YahooFinanceApi
 import com.stockwatchdog.app.data.db.AppDatabase
@@ -112,6 +113,11 @@ class AppContainer(private val context: Context) {
         market = marketDataRepository,
         dao = database.dipFinderDao(),
         settings = settingsRepository,
+        cooldown = providerCooldown
+    )
+
+    val stockDetailsRepository: StockDetailsRepository = StockDetailsRepository(
+        yahoo = yahooFinance,
         cooldown = providerCooldown
     )
 }

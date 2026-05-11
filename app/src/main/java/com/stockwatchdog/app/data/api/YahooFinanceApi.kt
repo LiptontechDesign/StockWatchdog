@@ -1,6 +1,7 @@
 package com.stockwatchdog.app.data.api
 
 import com.stockwatchdog.app.data.api.models.YahooChartEnvelope
+import com.stockwatchdog.app.data.api.models.YahooQuoteSummaryEnvelope
 import com.stockwatchdog.app.data.api.models.YahooSearchResponse
 import retrofit2.http.GET
 import retrofit2.http.Headers
@@ -49,4 +50,23 @@ interface YahooFinanceApi {
         @Query("quotesCount") quotesCount: Int = 10,
         @Query("newsCount") newsCount: Int = 0
     ): YahooSearchResponse
+
+    /**
+     * Rich per-symbol details: next earnings date, analyst targets,
+     * 52w range, 200d MA, average volume, last quarterly EPS. Used by
+     * the Dip page to show richer per-stock context.
+     *
+     * `modules` is a comma-separated list. We only request what we render
+     * to keep payloads small.
+     */
+    @Headers(
+        "User-Agent: Mozilla/5.0 (Linux; Android 10) StockWatchdog/1.0",
+        "Accept: application/json"
+    )
+    @GET("v10/finance/quoteSummary/{symbol}")
+    suspend fun quoteSummary(
+        @Path("symbol") symbol: String,
+        @Query("modules") modules: String =
+            "calendarEvents,earnings,financialData,summaryDetail"
+    ): YahooQuoteSummaryEnvelope
 }

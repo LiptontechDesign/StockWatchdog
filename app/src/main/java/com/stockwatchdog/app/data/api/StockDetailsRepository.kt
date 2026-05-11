@@ -1,0 +1,207 @@
+package com.stockwatchdog.app.data.api
+
+import com.stockwatchdog.app.data.api.models.YahooQuoteSummaryResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+/**
+ * Fetches "extra" per-symbol details that don't fit in [Quote]:
+ *  - next earnings date (epoch seconds)
+ *  - last quarterly EPS actual vs estimate (beat / miss)
+ *  - analyst average price target & recommendation
+ *  - 52-week high / low
+ *  - 200-day moving average
+ *  - average daily volume + recent volume (volume spike detection)
+ *
+ * Source: Yahoo Finance `quoteSummary` (no API key required). Results are
+ * cached in-memory with a TTL because fundamentals change at most once per
+ * day. The cache lives for the process lifetime; that's enough since the
+ * Dip screen re-fetches every time the user pulls to refresh.
+ */
+class StockDetailsRepository(
+    private val yahoo: YahooFinanceApi,
+    private val cooldown: ProviderCooldown
+) {
+
+    /** Result TTL: 6 hours. Earnings/analyst data is daily-ish. */
+    private val ttlMs: Long = 6 * 60 * 60 * 1000L
+
+    private val cache: MutableMap<String, CachedDetails> = HashMap()
+    private val lock = Mutex()
+
+    private data class CachedDetails(
+        val details: StockDetails,
+        val fetchedAtMs: Long
+    )
+
+    /**
+     * Get details for [symbol]. Returns `null` if the upstream is
+     * unavailable (rate-limited, unauthorized, network error). Callers
+     * should render UI gracefully without these fields.
+     */
+    suspend fun get(symbol: String, forceRefresh: Boolean = false): StockDetails? {
+        val s = symbol.trim().uppercase()
+        if (s.isBlank()) return null
+
+        if (!forceRefresh) {
+            lock.withLock {
+                val hit = cache[s]
+                if (hit != null && System.currentTimeMillis() - hit.fetchedAtMs < ttlMs) {
+                    return hit.details
+                }
+            }
+        }
+
+        if (cooldown.isCoolingDown(YAHOO_SUMMARY_KEY)) return cachedOrNull(s)
+
+        val fresh = withContext(Dispatchers.IO) {
+            runCatching {
+                val env = yahoo.quoteSummary(s)
+                env.quoteSummary?.error?.description?.let { error(it) }
+                val result = env.quoteSummary?.result?.firstOrNull() ?: return@runCatching null
+                result.toDetails(s)
+            }.onFailure {
+                // Treat unauthorized/403 like a long cooldown; transient
+                // errors get a short cooldown.
+                val msg = it.message ?: ""
+                if ("401" in msg || "403" in msg || "Unauthorized" in msg) {
+                    cooldown.trip(YAHOO_SUMMARY_KEY, ProviderCooldown.PER_DAY_CAP_MS)
+                } else {
+                    cooldown.trip(YAHOO_SUMMARY_KEY, ProviderCooldown.PER_MINUTE_CAP_MS)
+                }
+            }.getOrNull()
+        } ?: return cachedOrNull(s)
+
+        lock.withLock {
+            cache[s] = CachedDetails(fresh, System.currentTimeMillis())
+        }
+        return fresh
+    }
+
+    /**
+     * Bulk-fetch [symbols] sequentially so we stay polite to Yahoo's
+     * undocumented endpoint. Cached symbols are served instantly.
+     */
+    suspend fun getMany(
+        symbols: List<String>,
+        forceRefresh: Boolean = false
+    ): Map<String, StockDetails> {
+        if (symbols.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<String, StockDetails>()
+        for (s in symbols.distinct()) {
+            val d = get(s, forceRefresh) ?: continue
+            out[s] = d
+        }
+        return out
+    }
+
+    private suspend fun cachedOrNull(s: String): StockDetails? = lock.withLock {
+        cache[s]?.details
+    }
+
+    private companion object {
+        const val YAHOO_SUMMARY_KEY = "YAHOO_QUOTE_SUMMARY"
+    }
+}
+
+/**
+ * Normalised per-symbol details used by the Dip page UI.
+ * Every field is nullable so the UI degrades gracefully when Yahoo is
+ * rate-limited.
+ */
+data class StockDetails(
+    val symbol: String,
+    // Next earnings event
+    val nextEarningsEpochSeconds: Long? = null,
+    val nextEarningsIsEstimate: Boolean? = null,
+    // Last reported quarterly EPS surprise
+    val lastEpsActual: Double? = null,
+    val lastEpsEstimate: Double? = null,
+    val lastEpsQuarterLabel: String? = null,
+    // Analyst price target
+    val analystTargetMean: Double? = null,
+    val analystTargetHigh: Double? = null,
+    val analystTargetLow: Double? = null,
+    val analystOpinionsCount: Long? = null,
+    val analystRecommendation: String? = null,
+    // 52-week range + trend baselines
+    val fiftyTwoWeekHigh: Double? = null,
+    val fiftyTwoWeekLow: Double? = null,
+    val twoHundredDayAverage: Double? = null,
+    val fiftyDayAverage: Double? = null,
+    // Volume signals
+    val averageVolume: Long? = null,
+    val averageVolume10Day: Long? = null,
+    val currentVolume: Long? = null
+) {
+    /** Current price vs analyst mean target as a +/- % (positive = upside). */
+    fun upsideToTargetPct(currentPrice: Double?): Double? {
+        if (currentPrice == null || currentPrice <= 0.0) return null
+        val tgt = analystTargetMean ?: return null
+        return (tgt - currentPrice) / currentPrice * 100.0
+    }
+
+    /** Last quarter's EPS surprise as a % of estimate. Positive = beat. */
+    fun epsSurprisePct(): Double? {
+        val a = lastEpsActual ?: return null
+        val e = lastEpsEstimate ?: return null
+        if (e == 0.0) return null
+        return (a - e) / kotlin.math.abs(e) * 100.0
+    }
+
+    /** Where price sits in the 52w range, 0.0 = at low, 1.0 = at high. */
+    fun positionInRange(currentPrice: Double?): Float? {
+        val price = currentPrice ?: return null
+        val hi = fiftyTwoWeekHigh ?: return null
+        val lo = fiftyTwoWeekLow ?: return null
+        if (hi <= lo) return null
+        return ((price - lo) / (hi - lo)).toFloat().coerceIn(0f, 1f)
+    }
+
+    /** % above (positive) or below (negative) the 200-day moving average. */
+    fun pctVs200dMa(currentPrice: Double?): Double? {
+        val price = currentPrice ?: return null
+        val ma = twoHundredDayAverage ?: return null
+        if (ma <= 0.0) return null
+        return (price - ma) / ma * 100.0
+    }
+
+    /**
+     * Ratio of current/recent vs typical volume. `> 1.5` is a meaningful
+     * unusual-volume signal. Returns null if either side is missing.
+     */
+    fun volumeSpikeRatio(): Double? {
+        val recent = (currentVolume ?: averageVolume10Day) ?: return null
+        val avg = averageVolume ?: return null
+        if (avg <= 0L) return null
+        return recent.toDouble() / avg.toDouble()
+    }
+}
+
+private fun YahooQuoteSummaryResult.toDetails(symbol: String): StockDetails {
+    val cal = calendarEvents?.earnings
+    val lastQ = earnings?.earningsChart?.quarterly?.lastOrNull()
+
+    return StockDetails(
+        symbol = symbol,
+        nextEarningsEpochSeconds = cal?.earningsDate?.firstOrNull()?.raw,
+        nextEarningsIsEstimate = cal?.isEarningsDateEstimate,
+        lastEpsActual = lastQ?.actual?.raw,
+        lastEpsEstimate = lastQ?.estimate?.raw,
+        lastEpsQuarterLabel = lastQ?.date,
+        analystTargetMean = financialData?.targetMeanPrice?.raw,
+        analystTargetHigh = financialData?.targetHighPrice?.raw,
+        analystTargetLow = financialData?.targetLowPrice?.raw,
+        analystOpinionsCount = financialData?.numberOfAnalystOpinions?.raw,
+        analystRecommendation = financialData?.recommendationKey,
+        fiftyTwoWeekHigh = summaryDetail?.fiftyTwoWeekHigh?.raw,
+        fiftyTwoWeekLow = summaryDetail?.fiftyTwoWeekLow?.raw,
+        twoHundredDayAverage = summaryDetail?.twoHundredDayAverage?.raw,
+        fiftyDayAverage = summaryDetail?.fiftyDayAverage?.raw,
+        averageVolume = summaryDetail?.averageVolume?.raw,
+        averageVolume10Day = summaryDetail?.averageDailyVolume10Day?.raw,
+        currentVolume = summaryDetail?.regularMarketVolume?.raw ?: summaryDetail?.volume?.raw
+    )
+}

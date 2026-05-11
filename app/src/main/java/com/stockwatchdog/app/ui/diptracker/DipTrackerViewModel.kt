@@ -3,6 +3,8 @@ package com.stockwatchdog.app.ui.diptracker
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stockwatchdog.app.data.api.MarketDataRepository
+import com.stockwatchdog.app.data.api.StockDetails
+import com.stockwatchdog.app.data.api.StockDetailsRepository
 import com.stockwatchdog.app.data.db.DipTrackerDao
 import com.stockwatchdog.app.data.db.entities.DipTrackerEntity
 import com.stockwatchdog.app.domain.DataResult
@@ -43,9 +45,13 @@ enum class DipFilterMode(val label: String) {
 data class DipRow(
     val entity: DipTrackerEntity,
     val currentPrice: Double? = null,
+    val previousClose: Double? = null,
+    val percentChange: Double? = null,
     val name: String? = null,
     val status: ZoneStatus = ZoneStatus.NO_DATA,
-    val distanceToBuyZonePct: Double? = null
+    val distanceToBuyZonePct: Double? = null,
+    /** Rich Yahoo quoteSummary details (earnings, target, 52w, MA200, volume). */
+    val details: StockDetails? = null
 )
 
 data class DipTrackerUiState(
@@ -77,7 +83,8 @@ data class DipTrackerUiState(
 
 class DipTrackerViewModel(
     private val dao: DipTrackerDao,
-    private val repo: MarketDataRepository
+    private val repo: MarketDataRepository,
+    private val detailsRepo: StockDetailsRepository
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(DipTrackerUiState())
@@ -107,16 +114,25 @@ class DipTrackerViewModel(
         _ui.update { it.copy(isRefreshing = true) }
         val rows = entities.map { entity ->
             val result = repo.getQuote(entity.symbol, forceRefresh = forceRefresh)
-            val price = (result as? DataResult.Success)?.value?.price
-            val name = (result as? DataResult.Success)?.value?.name
+            val quote = (result as? DataResult.Success)?.value
+            val price = quote?.price
+            val name = quote?.name
             val status = computeStatus(price, entity)
             val distPct = computeDistancePct(price, entity)
+            // Best-effort details fetch. The repo caches for 6h and degrades
+            // gracefully if Yahoo's quoteSummary is rate-limited.
+            val details = runCatching {
+                detailsRepo.get(entity.symbol, forceRefresh = forceRefresh)
+            }.getOrNull()
             DipRow(
                 entity = entity,
                 currentPrice = price,
+                previousClose = quote?.previousClose,
+                percentChange = quote?.percentChange,
                 name = name,
                 status = status,
-                distanceToBuyZonePct = distPct
+                distanceToBuyZonePct = distPct,
+                details = details
             )
         }
         rawRows = rows
