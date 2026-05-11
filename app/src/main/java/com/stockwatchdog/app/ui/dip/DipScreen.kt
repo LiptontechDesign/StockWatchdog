@@ -196,8 +196,6 @@ fun DipScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { MarketHoursCard(nowMs = nowMs) }
-
             if (state.rows.isNotEmpty()) {
                 item { TrackerSummaryCard(state.rows) }
             }

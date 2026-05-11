@@ -3,6 +3,8 @@ package com.stockwatchdog.app.ui.watchlist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stockwatchdog.app.data.api.MarketDataRepository
+import com.stockwatchdog.app.data.api.StockDetails
+import com.stockwatchdog.app.data.api.StockDetailsRepository
 import com.stockwatchdog.app.data.db.PositionLotDao
 import com.stockwatchdog.app.data.db.WatchlistDao
 import com.stockwatchdog.app.data.db.entities.PositionLotEntity
@@ -29,6 +31,7 @@ data class WatchRow(
     val entryPrice: Double? = null,
     /** Derived quantity (sum of amountInvested / entryPrice across lots). */
     val quantity: Double? = null,
+    val details: StockDetails? = null,
     val error: String? = null
 )
 
@@ -41,6 +44,7 @@ data class WatchlistUiState(
     val searchResults: List<SymbolMatch> = emptyList(),
     val searching: Boolean = false,
     val marketSummaryText: String? = null,
+    val marketSession: MarketSessionSummary? = null,
     val platformFeePercent: Double = 0.0,
     /** Symbol waiting on user confirmation before deletion. */
     val confirmDeleteSymbol: String? = null,
@@ -52,6 +56,7 @@ class WatchlistViewModel(
     private val dao: WatchlistDao,
     private val positionLotDao: PositionLotDao,
     private val repo: MarketDataRepository,
+    private val detailsRepo: StockDetailsRepository,
     private val container: AppContainer
 ) : ViewModel() {
 
@@ -69,6 +74,13 @@ class WatchlistViewModel(
     private var searchJob: Job? = null
 
     init {
+        val initialSummary = MarketSessionClock.summary()
+        _ui.update {
+            it.copy(
+                marketSummaryText = initialSummary.asPlainText(),
+                marketSession = initialSummary
+            )
+        }
         viewModelScope.launch {
             combine(items, quoteCache, lots) { list, cache, allLots ->
                 val lotsBySymbol = allLots.groupBy { it.symbol }
@@ -118,18 +130,42 @@ class WatchlistViewModel(
             for (sym in symbols) {
                 when (val r = repo.getQuote(sym, forceRefresh = force)) {
                     is DataResult.Success -> results[sym] = WatchRow(
-                        symbol = sym, name = r.value.name, quote = r.value
+                        symbol = sym,
+                        name = r.value.name,
+                        quote = r.value,
+                        details = quoteCache.value[sym]?.details
                     )
                     is DataResult.Error -> results[sym] = WatchRow(
-                        symbol = sym, name = null, quote = null, error = r.message
+                        symbol = sym,
+                        name = null,
+                        quote = null,
+                        details = quoteCache.value[sym]?.details,
+                        error = r.message
                     )
                 }
                 quoteCache.update { it + results }
             }
-            val summary = results.values.firstNotNullOfOrNull { it.quote?.marketIsOpen }?.let {
-                if (it) "Market open" else "Market closed"
+            val summary = MarketSessionClock.summary()
+            _ui.update {
+                it.copy(
+                    isRefreshing = false,
+                    marketSummaryText = summary.asPlainText(),
+                    marketSession = summary
+                )
             }
-            _ui.update { it.copy(isRefreshing = false, marketSummaryText = summary) }
+            loadDetails(symbols, forceRefresh = force)
+        }
+    }
+
+    private fun loadDetails(symbols: List<String>, forceRefresh: Boolean) {
+        viewModelScope.launch {
+            for (sym in symbols) {
+                val details = detailsRepo.get(sym, forceRefresh = forceRefresh) ?: continue
+                quoteCache.update { cache ->
+                    val current = cache[sym] ?: WatchRow(symbol = sym, name = null, quote = null)
+                    cache + (sym to current.copy(details = details))
+                }
+            }
         }
     }
 
@@ -204,5 +240,76 @@ class WatchlistViewModel(
         val moved = current.removeAt(fromIndex)
         current.add(toIndex, moved)
         viewModelScope.launch { dao.reorder(current) }
+    }
+}
+
+data class MarketSessionSummary(
+    val isOpen: Boolean,
+    val statusLabel: String,
+    val actionLabel: String,
+    val duration: String,
+    val nairobiTime: String
+) {
+    fun asPlainText(): String = "$statusLabel - $actionLabel in $duration ($nairobiTime Nairobi)"
+}
+
+private object MarketSessionClock {
+    private val nairobiZone = java.time.ZoneId.of("Africa/Nairobi")
+    private val marketZone = java.time.ZoneId.of("America/New_York")
+    private val openTime = java.time.LocalTime.of(9, 30)
+    private val closeTime = java.time.LocalTime.of(16, 0)
+    private val timeFmt = java.time.format.DateTimeFormatter.ofPattern("EEE HH:mm")
+
+    fun summary(now: java.time.Instant = java.time.Instant.now()): MarketSessionSummary {
+        val marketNow = now.atZone(marketZone)
+        val date = marketNow.toLocalDate()
+        val open = date.atTime(openTime).atZone(marketZone)
+        val close = date.atTime(closeTime).atZone(marketZone)
+
+        return if (isTradingDay(date) && marketNow >= open && marketNow < close) {
+            val closeNairobi = close.withZoneSameInstant(nairobiZone)
+            MarketSessionSummary(
+                isOpen = true,
+                statusLabel = "MARKET OPEN",
+                actionLabel = "closes",
+                duration = formatDuration(java.time.Duration.between(marketNow, close)),
+                nairobiTime = closeNairobi.format(timeFmt)
+            )
+        } else {
+            val nextOpen = nextOpenAfter(marketNow)
+            val nextOpenNairobi = nextOpen.withZoneSameInstant(nairobiZone)
+            MarketSessionSummary(
+                isOpen = false,
+                statusLabel = "MARKET CLOSED",
+                actionLabel = "opens",
+                duration = formatDuration(java.time.Duration.between(marketNow, nextOpen)),
+                nairobiTime = nextOpenNairobi.format(timeFmt)
+            )
+        }
+    }
+
+    private fun nextOpenAfter(marketNow: java.time.ZonedDateTime): java.time.ZonedDateTime {
+        var date = marketNow.toLocalDate()
+        val todayOpen = date.atTime(openTime).atZone(marketZone)
+        if (isTradingDay(date) && marketNow < todayOpen) return todayOpen
+        do {
+            date = date.plusDays(1)
+        } while (!isTradingDay(date))
+        return date.atTime(openTime).atZone(marketZone)
+    }
+
+    private fun isTradingDay(date: java.time.LocalDate): Boolean =
+        date.dayOfWeek != java.time.DayOfWeek.SATURDAY &&
+            date.dayOfWeek != java.time.DayOfWeek.SUNDAY
+
+    private fun formatDuration(duration: java.time.Duration): String {
+        val totalMinutes = duration.toMinutes().coerceAtLeast(0)
+        val hours = totalMinutes / 60
+        val minutes = totalMinutes % 60
+        return when {
+            hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
+            hours > 0 -> "${hours}h"
+            else -> "${minutes}m"
+        }
     }
 }

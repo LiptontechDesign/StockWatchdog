@@ -50,7 +50,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -77,6 +81,7 @@ fun WatchlistScreen(
                     dao = container.database.watchlistDao(),
                     positionLotDao = container.database.positionLotDao(),
                     repo = container.marketDataRepository,
+                    detailsRepo = container.stockDetailsRepository,
                     container = container
                 )
             }
@@ -107,7 +112,9 @@ fun WatchlistScreen(
                 title = {
                     Column {
                         Text("Watchlist", fontWeight = FontWeight.SemiBold)
-                        state.marketSummaryText?.let {
+                        state.marketSession?.let {
+                            MarketSessionSubtitle(it)
+                        } ?: state.marketSummaryText?.let {
                             Text(
                                 it,
                                 style = MaterialTheme.typography.labelSmall,
@@ -202,6 +209,46 @@ fun WatchlistScreen(
 }
 
 @Composable
+private fun MarketSessionSubtitle(summary: MarketSessionSummary) {
+    val statusColor = if (summary.isOpen) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.error
+    }
+    val timeColor = MaterialTheme.colorScheme.secondary
+    Text(
+        text = buildAnnotatedString {
+            withStyle(
+                SpanStyle(
+                    color = statusColor,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            ) {
+                append(summary.statusLabel)
+            }
+            append(" - ${summary.actionLabel} in ")
+            withStyle(
+                SpanStyle(
+                    color = timeColor,
+                    fontWeight = FontWeight.Bold
+                )
+            ) {
+                append(summary.duration)
+            }
+            append(" - ")
+            withStyle(SpanStyle(color = timeColor, fontWeight = FontWeight.SemiBold)) {
+                append(summary.nairobiTime)
+            }
+            append(" Nairobi")
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
 private fun WatchRowItem(
     row: WatchRow,
     platformFeePercent: Double,
@@ -228,6 +275,14 @@ private fun WatchRowItem(
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+            watchlistContextLine(row)?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
@@ -266,6 +321,33 @@ private fun WatchRowItem(
             )
         }
     }
+}
+
+private fun watchlistContextLine(row: WatchRow): String? {
+    val details = row.details ?: return null
+    val parts = buildList {
+        details.nextEarningsEpochSeconds?.let { epoch ->
+            val date = java.time.Instant.ofEpochSecond(epoch)
+                .atZone(java.time.ZoneId.of("Africa/Nairobi"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("MMM d"))
+            add("Next results $date${if (details.nextEarningsIsEstimate == true) " est" else ""}")
+        }
+        details.epsSurprisePct()?.let { surprise ->
+            val label = when {
+                surprise > 0.5 -> "beat"
+                surprise < -0.5 -> "miss"
+                else -> "in line"
+            }
+            add("Last EPS $label ${formatSignedPercent(surprise)}")
+        } ?: run {
+            val actual = details.lastEpsActual
+            val estimate = details.lastEpsEstimate
+            if (actual != null && estimate != null) {
+                add("Last EPS ${"%.2f".format(actual)} vs est ${"%.2f".format(estimate)}")
+            }
+        }
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" - ")
 }
 
 @Composable
