@@ -123,7 +123,7 @@ class TickerDetailViewModel(
     private suspend fun loadDetails(force: Boolean) {
         _ui.update { it.copy(detailsLoading = true, detailsError = null) }
         val details = runCatching {
-            detailsRepo.get(symbol, forceRefresh = force)
+            detailsRepo.get(symbol, forceRefresh = force, includeFmp = true)
         }.getOrNull()
         _ui.update {
             it.copy(

@@ -21,6 +21,7 @@ data class UserSettings(
     val twelveDataKey: String = "",
     val alphaVantageKey: String = "",
     val finnhubKey: String = "",
+    val fmpKey: String = "",
     val platformFeePercent: Double = 0.0,
     val intervalMinutes: Int = 30,
     val notificationsEnabled: Boolean = true,
@@ -66,6 +67,7 @@ class SettingsRepository(private val context: Context) {
         val TWELVE = stringPreferencesKey("td_key")
         val ALPHA = stringPreferencesKey("av_key")
         val FINNHUB = stringPreferencesKey("fh_key")
+        val FMP = stringPreferencesKey("fmp_key")
         val PLATFORM_FEE_PERCENT = doublePreferencesKey("platform_fee_percent")
         val INTERVAL = intPreferencesKey("interval_minutes")
         val NOTIFS = booleanPreferencesKey("notifications")
@@ -82,6 +84,7 @@ class SettingsRepository(private val context: Context) {
             twelveDataKey = prefs[Keys.TWELVE] ?: BuildConfig.TWELVE_DATA_API_KEY,
             alphaVantageKey = prefs[Keys.ALPHA] ?: BuildConfig.ALPHA_VANTAGE_API_KEY,
             finnhubKey = prefs[Keys.FINNHUB] ?: BuildConfig.FINNHUB_API_KEY,
+            fmpKey = prefs[Keys.FMP] ?: BuildConfig.FMP_API_KEY,
             platformFeePercent = prefs[Keys.PLATFORM_FEE_PERCENT] ?: 0.0,
             intervalMinutes = prefs[Keys.INTERVAL] ?: 30,
             notificationsEnabled = prefs[Keys.NOTIFS] ?: true,
@@ -104,6 +107,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setFinnhubKey(key: String) =
         context.dataStore.edit { it[Keys.FINNHUB] = key.trim() }
+
+    suspend fun setFmpKey(key: String) =
+        context.dataStore.edit { it[Keys.FMP] = key.trim() }
 
     suspend fun setPlatformFeePercent(percent: Double) =
         context.dataStore.edit { it[Keys.PLATFORM_FEE_PERCENT] = percent.coerceAtLeast(0.0) }

@@ -55,9 +55,11 @@ fun SettingsScreen(container: AppContainer) {
     var editingTwelve by rememberSaveable { mutableStateOf(false) }
     var editingAlpha by rememberSaveable { mutableStateOf(false) }
     var editingFinnhub by rememberSaveable { mutableStateOf(false) }
+    var editingFmp by rememberSaveable { mutableStateOf(false) }
     var twelveDraft by rememberSaveable { mutableStateOf("") }
     var alphaDraft by rememberSaveable { mutableStateOf("") }
     var finnhubDraft by rememberSaveable { mutableStateOf("") }
+    var fmpDraft by rememberSaveable { mutableStateOf("") }
     var editingFee by rememberSaveable { mutableStateOf(false) }
     var feeDraft by rememberSaveable { mutableStateOf("") }
 
@@ -74,8 +76,8 @@ fun SettingsScreen(container: AppContainer) {
             SectionHeader("Data provider")
             Text(
                 "Auto rotates between Finnhub, Twelve Data, Yahoo Finance and " +
-                    "Alpha Vantage so you never hit a rate-limit dead end. Pick a " +
-                    "single provider only if you want to force one.",
+                    "Alpha Vantage for prices. FMP is used for deeper financial " +
+                    "statements when a key is saved.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp)
@@ -113,6 +115,27 @@ fun SettingsScreen(container: AppContainer) {
                 )
             }
             Spacer(Modifier.height(12.dp))
+            ApiKeySetting(
+                label = "FMP API key",
+                hasSavedValue = s.fmpKey.isNotBlank(),
+                isEditing = editingFmp,
+                draftValue = fmpDraft,
+                onOpenEditor = {
+                    editingFmp = true
+                    fmpDraft = ""
+                },
+                onDraftChange = { fmpDraft = it },
+                onApply = {
+                    vm.setFmpKey(fmpDraft)
+                    fmpDraft = ""
+                    editingFmp = false
+                },
+                onCancel = {
+                    fmpDraft = ""
+                    editingFmp = false
+                }
+            )
+            Spacer(Modifier.height(8.dp))
             ApiKeySetting(
                 label = "Finnhub API key",
                 hasSavedValue = s.finnhubKey.isNotBlank(),

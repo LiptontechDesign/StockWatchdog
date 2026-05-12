@@ -86,6 +86,10 @@ android {
             "String", "FINNHUB_API_KEY",
             "\"${localProp("FINNHUB_API_KEY", "d7jj9nhr01qhf13f3cd0d7jj9nhr01qhf13f3cdg")}\""
         )
+        buildConfigField(
+            "String", "FMP_API_KEY",
+            "\"${localProp("FMP_API_KEY")}\""
+        )
     }
 
     buildTypes {

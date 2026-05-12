@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.stockwatchdog.app.data.api.AlphaVantageApi
 import com.stockwatchdog.app.data.api.DipFinderRepository
 import com.stockwatchdog.app.data.api.FinnhubApi
+import com.stockwatchdog.app.data.api.FmpApi
 import com.stockwatchdog.app.data.api.MarketDataRepository
 import com.stockwatchdog.app.data.api.ProviderCooldown
 import com.stockwatchdog.app.data.api.StockDetailsRepository
@@ -37,6 +38,14 @@ class AppContainer(private val context: Context) {
         .readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(20, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
+        .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+        .addInterceptor { chain ->
+            val request = chain.request().newBuilder()
+                .header("User-Agent", "StockWatchdog/1.0 Android")
+                .header("Accept", "application/json")
+                .build()
+            chain.proceed(request)
+        }
         .apply {
             // Keep logging quiet on release; enable verbose only for debug builds.
             if (com.stockwatchdog.app.BuildConfig.DEBUG) {
@@ -76,6 +85,13 @@ class AppContainer(private val context: Context) {
         .addConverterFactory(converter)
         .build()
         .create(YahooFinanceApi::class.java)
+
+    private val fmp: FmpApi = Retrofit.Builder()
+        .baseUrl("https://financialmodelingprep.com/stable/")
+        .client(httpClient)
+        .addConverterFactory(converter)
+        .build()
+        .create(FmpApi::class.java)
 
     private val providerCooldown: ProviderCooldown = ProviderCooldown()
 
@@ -121,6 +137,7 @@ class AppContainer(private val context: Context) {
         yahoo = yahooFinance,
         finnhub = finnhub,
         alphaVantage = alphaVantage,
+        fmp = fmp,
         settings = settingsRepository,
         cooldown = providerCooldown
     )

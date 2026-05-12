@@ -432,82 +432,87 @@ private fun FinancialsSection(state: DetailUiState) {
             return
         }
 
-        FinancialReadCard(details = details, currentPrice = state.quote?.price)
-        FinancialMeaningCard(details = details)
+        FinancialPunchSummary(details = details, currentPrice = state.quote?.price)
 
         FinancialMetricCard("Results") {
             FinancialMetricRow(
-                "Next results",
-                formatFinancialDate(details.nextEarningsEpochSeconds),
-                "Last EPS",
-                formatEpsSurprise(details)
+                "Next results (EAT)",
+                formatResultDate(details),
+                "Last EPS (profit/share)",
+                formatEpsSurprise(details),
+                tone2 = toneForSigned(details.epsSurprisePct())
             )
             Spacer(Modifier.height(8.dp))
             FinancialMetricRow(
                 "Revenue surprise",
-                "--",
-                "Guidance",
-                "--"
+                formatRevenueSurprise(details),
+                "Report period",
+                details.latestFinancialPeriod ?: details.lastEpsQuarterLabel ?: "--",
+                tone1 = toneForSigned(details.revenueSurprisePct())
             )
         }
 
         FinancialMetricCard("Growth") {
             FinancialMetricRow(
-                "Revenue growth",
-                formatSignedPercentOne(details.revenueGrowthPct),
-                "EPS growth",
-                formatSignedPercentOne(details.epsGrowthPct),
-                value1Positive = details.revenueGrowthPct,
-                value2Positive = details.epsGrowthPct
+                "Revenue growth (sales)",
+                formatSignedPercentHint(details.revenueGrowthPct, "sales"),
+                "EPS growth (profit/share)",
+                formatSignedPercentHint(details.epsGrowthPct, "profit/share"),
+                tone1 = toneForSigned(details.revenueGrowthPct),
+                tone2 = toneForSigned(details.epsGrowthPct)
             )
         }
 
         FinancialMetricCard("Profitability") {
             FinancialMetricRow(
-                "Revenue",
-                formatCompactMoney(details.totalRevenue),
-                "Profit margin",
-                formatPercentOne(details.profitMarginPct),
-                value2Positive = details.profitMarginPct
+                "Revenue (sales)",
+                formatCompactMoneyHint(details.totalRevenue, "sales"),
+                "Net margin (profit kept)",
+                formatPercentHint(details.profitMarginPct, "kept"),
+                tone2 = toneForMargin(details.profitMarginPct)
             )
             Spacer(Modifier.height(8.dp))
             FinancialMetricRow(
                 "Operating margin",
-                formatPercentOne(details.operatingMarginPct),
-                "Free cash flow",
-                formatCompactMoney(details.freeCashflow),
-                value1Positive = details.operatingMarginPct,
-                value2Positive = details.freeCashflow
+                formatPercentHint(details.operatingMarginPct, "ops profit"),
+                "Free cash flow (real cash)",
+                formatCompactMoneyHint(details.freeCashflow, "cash left"),
+                tone1 = toneForMargin(details.operatingMarginPct),
+                tone2 = toneForSigned(details.freeCashflow)
             )
         }
 
         FinancialMetricCard("Safety") {
             FinancialMetricRow(
-                "Debt / equity",
-                formatRatio(details.debtToEquity),
-                "Total debt",
-                formatCompactMoney(details.totalDebt)
+                "Debt/equity (leverage)",
+                formatRatioHint(details.debtToEquity, "debt vs owned"),
+                "Total debt (borrowed)",
+                formatCompactMoneyHint(details.totalDebt, "borrowed"),
+                tone1 = toneForDebt(details.debtToEquity)
             )
             Spacer(Modifier.height(8.dp))
             FinancialMetricRow(
-                "Cash",
-                formatCompactMoney(details.totalCash),
-                "Current ratio",
-                formatRatio(details.currentRatio)
+                "Cash (buffer)",
+                formatCompactMoneyHint(details.totalCash, "cash"),
+                "Current ratio (cover)",
+                formatRatioHint(details.currentRatio, "short-term"),
+                tone2 = toneForCurrentRatio(details.currentRatio)
             )
         }
 
         FinancialMetricCard("Valuation") {
             FinancialMetricRow(
-                "P/E",
-                formatMultiple(details.trailingPe),
-                "Forward P/E",
-                formatMultiple(details.forwardPe)
+                "P/E (price/profit)",
+                formatMultipleHint(details.trailingPe, "now"),
+                "Forward P/E (next profit)",
+                formatMultipleHint(details.forwardPe, "future"),
+                tone1 = toneForPe(details.trailingPe),
+                tone2 = toneForPe(details.forwardPe)
             )
             Spacer(Modifier.height(8.dp))
             FinancialMetricRow(
-                "EPS",
-                formatPlainNumber(details.epsTtm),
+                "EPS TTM (profit/share)",
+                formatPlainNumberHint(details.epsTtm, "TTM"),
                 "Analyst target",
                 formatPrice(details.analystTargetMean)
             )
@@ -516,45 +521,32 @@ private fun FinancialsSection(state: DetailUiState) {
 }
 
 @Composable
-private fun FinancialReadCard(details: StockDetails, currentPrice: Double?) {
-    val notes = buildFinancialRead(details, currentPrice)
-    Card(
+private fun FinancialPunchSummary(details: StockDetails, currentPrice: Double?) {
+    val pulse = buildFinancialPulse(details, currentPrice)
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(12.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Simple read", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-            Text(
-                notes.ifBlank { "Not enough free fundamental data yet for a clean read." },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun FinancialMeaningCard(details: StockDetails) {
-    val lines = buildFinancialMeaning(details)
-    if (lines.isEmpty()) return
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Plain meaning", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-            lines.forEach { line ->
-                Text(
-                    line,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        Text(
+            "Read: ${pulse.text}",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = financialToneColor(pulse.tone)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            details.financialDataSource?.let { source ->
+                AssistChip(
+                    onClick = {},
+                    label = { Text(if (source == "FMP") "FMP financials" else source) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+                    )
+                )
+            }
+            details.latestFinancialPeriod?.let { period ->
+                AssistChip(
+                    onClick = {},
+                    label = { Text(period) }
                 )
             }
         }
@@ -586,13 +578,13 @@ private fun FinancialMetricRow(
     value1: String,
     label2: String,
     value2: String,
-    value1Positive: Double? = null,
-    value2Positive: Double? = null
+    tone1: FinancialTone? = null,
+    tone2: FinancialTone? = null
 ) {
     Row(Modifier.fillMaxWidth()) {
-        FinancialMetricCell(label1, value1, value1Positive, Modifier.weight(1f))
+        FinancialMetricCell(label1, value1, tone1, Modifier.weight(1f))
         Spacer(Modifier.size(16.dp))
-        FinancialMetricCell(label2, value2, value2Positive, Modifier.weight(1f))
+        FinancialMetricCell(label2, value2, tone2, Modifier.weight(1f))
     }
 }
 
@@ -600,7 +592,7 @@ private fun FinancialMetricRow(
 private fun FinancialMetricCell(
     label: String,
     value: String,
-    signedTone: Double?,
+    tone: FinancialTone?,
     modifier: Modifier = Modifier
 ) {
     Column(modifier) {
@@ -608,21 +600,28 @@ private fun FinancialMetricCell(
             label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
+            maxLines = 2,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
         Text(
             value,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
-            color = signedTone?.let { changeColor(it) } ?: MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
+            color = tone?.let { financialToneColor(it) } ?: MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
     }
 }
 
-private fun buildFinancialRead(details: StockDetails, currentPrice: Double?): String {
+private enum class FinancialTone { GOOD, WATCH, BAD, NEUTRAL }
+
+private data class FinancialPulse(
+    val text: String,
+    val tone: FinancialTone
+)
+
+private fun buildFinancialPulse(details: StockDetails, currentPrice: Double?): FinancialPulse {
     val parts = mutableListOf<String>()
     details.revenueGrowthPct?.let {
         parts += if (it >= 0) "sales growing" else "sales falling"
@@ -651,51 +650,80 @@ private fun buildFinancialRead(details: StockDetails, currentPrice: Double?): St
     details.upsideToTargetPct(currentPrice)?.let {
         parts += if (it >= 0) "analysts see upside" else "target sits below price"
     }
-    return parts.joinToString(separator = ", ").replaceFirstChar { it.uppercaseChar() }
+
+    val text = parts
+        .take(4)
+        .joinToString(separator = ", ")
+        .ifBlank { "limited data; watch the next results date before deciding" }
+        .replaceFirstChar { it.uppercaseChar() }
+    val negatives = listOfNotNull(
+        details.revenueGrowthPct?.takeIf { it < 0.0 },
+        details.epsGrowthPct?.takeIf { it < 0.0 },
+        details.profitMarginPct?.takeIf { it <= 0.0 },
+        details.debtToEquity?.takeIf { it > 150.0 }
+    ).size
+    val positives = listOfNotNull(
+        details.revenueGrowthPct?.takeIf { it > 0.0 },
+        details.epsGrowthPct?.takeIf { it > 0.0 },
+        details.profitMarginPct?.takeIf { it > 10.0 },
+        details.debtToEquity?.takeIf { it <= 100.0 }
+    ).size
+    val tone = when {
+        negatives >= 2 -> FinancialTone.BAD
+        positives >= 2 -> FinancialTone.GOOD
+        parts.isEmpty() -> FinancialTone.WATCH
+        else -> FinancialTone.WATCH
+    }
+    return FinancialPulse(text, tone)
 }
 
-private fun buildFinancialMeaning(details: StockDetails): List<String> {
-    val lines = mutableListOf<String>()
-    details.revenueGrowthPct?.let {
-        lines += if (it >= 0) {
-            "Revenue growth: sales are increasing, which is usually a healthy sign."
-        } else {
-            "Revenue growth: sales are falling, so demand or pricing may be under pressure."
-        }
+@Composable
+private fun financialToneColor(tone: FinancialTone) = when (tone) {
+    FinancialTone.GOOD -> changeColor(1.0)
+    FinancialTone.BAD -> changeColor(-1.0)
+    FinancialTone.WATCH -> androidx.compose.ui.graphics.Color(0xFFE0A72E)
+    FinancialTone.NEUTRAL -> MaterialTheme.colorScheme.onSurface
+}
+
+private fun toneForSigned(value: Double?): FinancialTone? = value?.let {
+    when {
+        it > 0.0 -> FinancialTone.GOOD
+        it < 0.0 -> FinancialTone.BAD
+        else -> FinancialTone.NEUTRAL
     }
-    details.epsGrowthPct?.let {
-        lines += if (it >= 0) {
-            "EPS growth: profit per share is improving; stock prices often follow this over time."
-        } else {
-            "EPS growth: profit per share is weakening, which can pressure the stock."
-        }
+}
+
+private fun toneForMargin(value: Double?): FinancialTone? = value?.let {
+    when {
+        it >= 20.0 -> FinancialTone.GOOD
+        it > 0.0 -> FinancialTone.WATCH
+        else -> FinancialTone.BAD
     }
-    details.profitMarginPct?.let {
-        lines += when {
-            it >= 20.0 -> "Profit margin: the company keeps a strong share of sales as profit."
-            it > 0.0 -> "Profit margin: the company is profitable, but check whether margins are improving."
-            else -> "Profit margin: the company is not keeping profit from sales right now."
-        }
+}
+
+private fun toneForDebt(value: Double?): FinancialTone? = value?.let {
+    when {
+        it <= 100.0 -> FinancialTone.GOOD
+        it <= 150.0 -> FinancialTone.WATCH
+        else -> FinancialTone.BAD
     }
-    details.debtToEquity?.let {
-        lines += if (it <= 100.0) {
-            "Debt: borrowing looks manageable compared with shareholder equity."
-        } else {
-            "Debt: borrowing is elevated, so interest costs and risk matter more."
-        }
+}
+
+private fun toneForCurrentRatio(value: Double?): FinancialTone? = value?.let {
+    when {
+        it >= 1.5 -> FinancialTone.GOOD
+        it >= 1.0 -> FinancialTone.WATCH
+        else -> FinancialTone.BAD
     }
-    details.trailingPe?.let {
-        lines += when {
-            it <= 0.0 -> "P/E: valuation is unclear because earnings are negative or unavailable."
-            it < 18.0 -> "P/E: the stock looks modestly priced compared with current profit."
-            it <= 35.0 -> "P/E: investors are paying a reasonable-to-premium price for profit."
-            else -> "P/E: the stock is expensive unless profit grows strongly."
-        }
+}
+
+private fun toneForPe(value: Double?): FinancialTone? = value?.let {
+    when {
+        it <= 0.0 -> FinancialTone.NEUTRAL
+        it < 18.0 -> FinancialTone.GOOD
+        it <= 35.0 -> FinancialTone.WATCH
+        else -> FinancialTone.BAD
     }
-    if (lines.isEmpty() && details.nextEarningsEpochSeconds != null) {
-        lines += "Results date: watch the next report because fresh numbers can change the buy case."
-    }
-    return lines.take(5)
 }
 
 private fun formatEpsSurprise(details: StockDetails): String {
@@ -712,6 +740,20 @@ private fun formatEpsSurprise(details: StockDetails): String {
     }
 }
 
+private fun formatRevenueSurprise(details: StockDetails): String {
+    val actual = details.lastRevenueActual ?: return "--"
+    val estimate = details.lastRevenueEstimate
+    val surprise = details.revenueSurprisePct()
+    return when {
+        surprise != null -> {
+            val label = if (surprise >= 0) "beat" else "miss"
+            "${formatCompactMoney(actual)} ($label ${formatPercentOne(kotlin.math.abs(surprise))})"
+        }
+        estimate != null -> "${formatCompactMoney(actual)} vs ${formatCompactMoney(estimate)}"
+        else -> formatCompactMoney(actual)
+    }
+}
+
 private val FinancialDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, HH:mm")
 
 private fun formatFinancialDate(epochSeconds: Long?): String =
@@ -719,20 +761,35 @@ private fun formatFinancialDate(epochSeconds: Long?): String =
         ?.let { Instant.ofEpochSecond(it).atZone(MarketClock.KENYA).format(FinancialDateFormat) + " EAT" }
         ?: "--"
 
-private fun formatSignedPercentOne(value: Double?): String =
-    value?.let { "%+.1f%%".format(it) } ?: "--"
+private fun formatResultDate(details: StockDetails): String {
+    val date = formatFinancialDate(details.nextEarningsEpochSeconds)
+    val quarter = details.nextEarningsQuarterLabel
+    return if (date != "--" && !quarter.isNullOrBlank()) "$date ($quarter)" else date
+}
 
 private fun formatPercentOne(value: Double?): String =
     value?.let { "%.1f%%".format(it) } ?: "--"
 
-private fun formatRatio(value: Double?): String =
-    value?.let { "%.2f".format(it) } ?: "--"
+private fun formatSignedPercentHint(value: Double?, hint: String): String =
+    value?.let { "%+.1f%% ($hint)".format(it) } ?: "--"
 
-private fun formatMultiple(value: Double?): String =
-    value?.takeIf { it > 0 }?.let { "%.1fx".format(it) } ?: "--"
+private fun formatPercentHint(value: Double?, hint: String): String =
+    value?.let { "%.1f%% ($hint)".format(it) } ?: "--"
+
+private fun formatRatioHint(value: Double?, hint: String): String =
+    value?.let { "%.2f ($hint)".format(it) } ?: "--"
+
+private fun formatMultipleHint(value: Double?, hint: String): String =
+    value?.takeIf { it > 0 }?.let { "%.1fx ($hint)".format(it) } ?: "--"
 
 private fun formatPlainNumber(value: Double?): String =
     value?.let { "%.2f".format(it) } ?: "--"
+
+private fun formatPlainNumberHint(value: Double?, hint: String): String =
+    value?.let { "%.2f ($hint)".format(it) } ?: "--"
+
+private fun formatCompactMoneyHint(value: Double?, hint: String): String =
+    value?.let { "${formatCompactMoney(it)} ($hint)" } ?: "--"
 
 private fun formatCompactMoney(value: Double?): String {
     value ?: return "--"
