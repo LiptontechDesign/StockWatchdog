@@ -436,9 +436,9 @@ private fun FinancialsSection(state: DetailUiState) {
 
         FinancialMetricCard("Results") {
             FinancialMetricRow(
-                "Next results (EAT)",
+                "Next results",
                 formatResultDate(details),
-                "Last EPS (profit/share)",
+                "Last EPS",
                 formatEpsSurprise(details),
                 tone2 = toneForSigned(details.epsSurprisePct())
             )
@@ -454,10 +454,10 @@ private fun FinancialsSection(state: DetailUiState) {
 
         FinancialMetricCard("Growth") {
             FinancialMetricRow(
-                "Revenue growth (sales)",
-                formatSignedPercentHint(details.revenueGrowthPct, "sales"),
-                "EPS growth (profit/share)",
-                formatSignedPercentHint(details.epsGrowthPct, "profit/share"),
+                "Revenue growth",
+                formatSignedPercentHint(details.revenueGrowthPct, ""),
+                "EPS growth",
+                formatSignedPercentHint(details.epsGrowthPct, ""),
                 tone1 = toneForSigned(details.revenueGrowthPct),
                 tone2 = toneForSigned(details.epsGrowthPct)
             )
@@ -465,18 +465,18 @@ private fun FinancialsSection(state: DetailUiState) {
 
         FinancialMetricCard("Profitability") {
             FinancialMetricRow(
-                "Revenue (sales)",
-                formatCompactMoneyHint(details.totalRevenue, "sales"),
-                "Net margin (profit kept)",
-                formatPercentHint(details.profitMarginPct, "kept"),
+                "Revenue",
+                formatCompactMoneyHint(details.totalRevenue, ""),
+                "Net margin",
+                formatPercentHint(details.profitMarginPct, ""),
                 tone2 = toneForMargin(details.profitMarginPct)
             )
             Spacer(Modifier.height(8.dp))
             FinancialMetricRow(
                 "Operating margin",
-                formatPercentHint(details.operatingMarginPct, "ops profit"),
-                "Free cash flow (real cash)",
-                formatCompactMoneyHint(details.freeCashflow, "cash left"),
+                formatPercentHint(details.operatingMarginPct, ""),
+                "Free cash flow",
+                formatCompactMoneyHint(details.freeCashflow, ""),
                 tone1 = toneForMargin(details.operatingMarginPct),
                 tone2 = toneForSigned(details.freeCashflow)
             )
@@ -484,35 +484,35 @@ private fun FinancialsSection(state: DetailUiState) {
 
         FinancialMetricCard("Safety") {
             FinancialMetricRow(
-                "Debt/equity (leverage)",
-                formatRatioHint(details.debtToEquity, "debt vs owned"),
-                "Total debt (borrowed)",
-                formatCompactMoneyHint(details.totalDebt, "borrowed"),
+                "Debt/equity",
+                formatRatioHint(details.debtToEquity, ""),
+                "Total debt",
+                formatCompactMoneyHint(details.totalDebt, ""),
                 tone1 = toneForDebt(details.debtToEquity)
             )
             Spacer(Modifier.height(8.dp))
             FinancialMetricRow(
-                "Cash (buffer)",
-                formatCompactMoneyHint(details.totalCash, "cash"),
-                "Current ratio (cover)",
-                formatRatioHint(details.currentRatio, "short-term"),
+                "Cash",
+                formatCompactMoneyHint(details.totalCash, ""),
+                "Current ratio",
+                formatRatioHint(details.currentRatio, ""),
                 tone2 = toneForCurrentRatio(details.currentRatio)
             )
         }
 
         FinancialMetricCard("Valuation") {
             FinancialMetricRow(
-                "P/E (price/profit)",
-                formatMultipleHint(details.trailingPe, "now"),
-                "Forward P/E (next profit)",
-                formatMultipleHint(details.forwardPe, "future"),
+                "P/E",
+                formatMultipleHint(details.trailingPe, ""),
+                "Forward P/E",
+                formatMultipleHint(details.forwardPe, ""),
                 tone1 = toneForPe(details.trailingPe),
                 tone2 = toneForPe(details.forwardPe)
             )
             Spacer(Modifier.height(8.dp))
             FinancialMetricRow(
-                "EPS TTM (profit/share)",
-                formatPlainNumberHint(details.epsTtm, "TTM"),
+                "EPS TTM",
+                formatPlainNumberHint(details.epsTtm, ""),
                 "Analyst target",
                 formatPrice(details.analystTargetMean)
             )
@@ -523,33 +523,132 @@ private fun FinancialsSection(state: DetailUiState) {
 @Composable
 private fun FinancialPunchSummary(details: StockDetails, currentPrice: Double?) {
     val pulse = buildFinancialPulse(details, currentPrice)
+    val chips = buildSignalChips(details, currentPrice)
+    val coverage = listOfNotNull(
+        details.revenueGrowthPct,
+        details.profitMarginPct,
+        details.debtToEquity,
+        details.trailingPe,
+        details.epsGrowthPct
+    ).size
+    val partial = coverage < 3
+
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            "Read: ${pulse.text}",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = financialToneColor(pulse.tone)
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            details.financialDataSource?.let { source ->
-                AssistChip(
-                    onClick = {},
-                    label = { Text(if (source == "FMP") "FMP financials" else source) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
-                    )
-                )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .background(financialToneColor(pulse.tone), RoundedCornerShape(50))
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                pulse.text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        if (chips.isNotEmpty()) {
+            chips.chunked(3).forEach { group ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    group.forEach { SignalChip(it) }
+                }
             }
-            details.latestFinancialPeriod?.let { period ->
-                AssistChip(
-                    onClick = {},
-                    label = { Text(period) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val parts = buildList {
+                details.financialDataSource?.let { add(if (it == "FMP") "FMP" else it) }
+                details.latestFinancialPeriod?.let { add(it) }
+                if (partial) add("partial data")
+            }
+            if (parts.isNotEmpty()) {
+                Text(
+                    parts.joinToString(" \u00B7 "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (partial) MaterialTheme.colorScheme.tertiary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (partial) FontWeight.SemiBold else FontWeight.Normal
                 )
             }
         }
+    }
+}
+
+private data class SignalChipData(val text: String, val tone: FinancialTone)
+
+@Composable
+private fun SignalChip(data: SignalChipData) {
+    val color = financialToneColor(data.tone)
+    Text(
+        data.text,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = color,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.13f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    )
+}
+
+private fun buildSignalChips(
+    details: StockDetails,
+    currentPrice: Double?
+): List<SignalChipData> = buildList {
+    details.revenueGrowthPct?.let {
+        add(SignalChipData(
+            "Rev %+.0f%%".format(it),
+            if (it >= 0) FinancialTone.GOOD else FinancialTone.BAD
+        ))
+    }
+    details.epsGrowthPct?.let {
+        add(SignalChipData(
+            "EPS %+.0f%%".format(it),
+            if (it >= 0) FinancialTone.GOOD else FinancialTone.BAD
+        ))
+    }
+    details.profitMarginPct?.let {
+        val tone = when {
+            it >= 15.0 -> FinancialTone.GOOD
+            it > 0.0 -> FinancialTone.WATCH
+            else -> FinancialTone.BAD
+        }
+        add(SignalChipData("Margin %.0f%%".format(it), tone))
+    }
+    details.debtToEquity?.let {
+        val tone = when {
+            it <= 100.0 -> FinancialTone.GOOD
+            it <= 200.0 -> FinancialTone.WATCH
+            else -> FinancialTone.BAD
+        }
+        val label = when {
+            it <= 100.0 -> "Debt low"
+            it <= 200.0 -> "Debt high"
+            else -> "Debt heavy"
+        }
+        add(SignalChipData(label, tone))
+    }
+    details.trailingPe?.takeIf { it > 0.0 }?.let {
+        val tone = when {
+            it < 18.0 -> FinancialTone.GOOD
+            it <= 35.0 -> FinancialTone.WATCH
+            else -> FinancialTone.BAD
+        }
+        val tag = when {
+            it < 18.0 -> "low"
+            it <= 35.0 -> "fair"
+            else -> "rich"
+        }
+        add(SignalChipData("P/E %.0f %s".format(it, tag), tone))
+    }
+    details.upsideToTargetPct(currentPrice)?.let {
+        add(SignalChipData(
+            "Target %+.0f%%".format(it),
+            if (it >= 0) FinancialTone.GOOD else FinancialTone.BAD
+        ))
     }
 }
 
@@ -770,26 +869,32 @@ private fun formatResultDate(details: StockDetails): String {
 private fun formatPercentOne(value: Double?): String =
     value?.let { "%.1f%%".format(it) } ?: "--"
 
+@Suppress("UNUSED_PARAMETER")
 private fun formatSignedPercentHint(value: Double?, hint: String): String =
-    value?.let { "%+.1f%% ($hint)".format(it) } ?: "--"
+    value?.let { "%+.1f%%".format(it) } ?: "--"
 
+@Suppress("UNUSED_PARAMETER")
 private fun formatPercentHint(value: Double?, hint: String): String =
-    value?.let { "%.1f%% ($hint)".format(it) } ?: "--"
+    value?.let { "%.1f%%".format(it) } ?: "--"
 
+@Suppress("UNUSED_PARAMETER")
 private fun formatRatioHint(value: Double?, hint: String): String =
-    value?.let { "%.2f ($hint)".format(it) } ?: "--"
+    value?.let { "%.2f".format(it) } ?: "--"
 
+@Suppress("UNUSED_PARAMETER")
 private fun formatMultipleHint(value: Double?, hint: String): String =
-    value?.takeIf { it > 0 }?.let { "%.1fx ($hint)".format(it) } ?: "--"
+    value?.takeIf { it > 0 }?.let { "%.1fx".format(it) } ?: "--"
 
 private fun formatPlainNumber(value: Double?): String =
     value?.let { "%.2f".format(it) } ?: "--"
 
+@Suppress("UNUSED_PARAMETER")
 private fun formatPlainNumberHint(value: Double?, hint: String): String =
-    value?.let { "%.2f ($hint)".format(it) } ?: "--"
+    value?.let { "%.2f".format(it) } ?: "--"
 
+@Suppress("UNUSED_PARAMETER")
 private fun formatCompactMoneyHint(value: Double?, hint: String): String =
-    value?.let { "${formatCompactMoney(it)} ($hint)" } ?: "--"
+    value?.let { formatCompactMoney(it) } ?: "--"
 
 private fun formatCompactMoney(value: Double?): String {
     value ?: return "--"
