@@ -5,6 +5,7 @@ import com.stockwatchdog.app.data.api.models.AlphaCompanyOverview
 import com.stockwatchdog.app.data.api.models.EdgarCompanyFacts
 import com.stockwatchdog.app.data.api.models.EdgarConcept
 import com.stockwatchdog.app.data.api.models.EdgarFact
+import com.stockwatchdog.app.data.api.models.FinnhubRecommendationTrend
 import com.stockwatchdog.app.data.api.models.FmpBalanceSheet
 import com.stockwatchdog.app.data.api.models.FmpCashFlowStatement
 import com.stockwatchdog.app.data.api.models.FmpEarningsEvent
@@ -128,7 +129,13 @@ class StockDetailsRepository(
             mergedDetails
         }
 
-        val fresh = withEarnings
+        val withRecommendation = if (includeFmp) {
+            withEarnings.withDetailsFallback(fetchFinnhubRecommendation(s), s)
+        } else {
+            withEarnings
+        }
+
+        val fresh = withRecommendation
             .withDetailsFallback(fetchAlphaOverviewIfNeeded(s, withEarnings), s)
             ?: return cachedOrNull(s)
 
@@ -165,6 +172,7 @@ class StockDetailsRepository(
         const val EDGAR_DETAILS_KEY = "EDGAR_DETAILS"
         const val YAHOO_SUMMARY_KEY = "YAHOO_QUOTE_SUMMARY"
         const val FINNHUB_EARNINGS_KEY = "FINNHUB_EARNINGS"
+        const val FINNHUB_RECOMMENDATION_KEY = "FINNHUB_RECOMMENDATION"
         const val ALPHA_OVERVIEW_KEY = "ALPHA_OVERVIEW_DETAILS"
         val NAIROBI_ZONE: ZoneId = ZoneId.of("Africa/Nairobi")
         val FINNHUB_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
@@ -388,6 +396,30 @@ class StockDetailsRepository(
         }
     }
 
+    private suspend fun fetchFinnhubRecommendation(symbol: String): StockDetails? {
+        if (cooldown.isCoolingDown(FINNHUB_RECOMMENDATION_KEY)) return null
+        val apiKey = settings.settings.first().finnhubKey
+        if (apiKey.isBlank()) return null
+
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                finnhub.recommendationTrends(symbol = symbol, apiKey = apiKey)
+                    .firstOrNull()
+                    ?.toDetails(symbol)
+            }.onSuccess {
+                cooldown.clear(FINNHUB_RECOMMENDATION_KEY)
+            }.onFailure {
+                val msg = it.message.orEmpty().lowercase()
+                val duration = if ("429" in msg || "limit" in msg) {
+                    ProviderCooldown.PER_MINUTE_CAP_MS
+                } else {
+                    ProviderCooldown.PER_MINUTE_CAP_MS
+                }
+                cooldown.trip(FINNHUB_RECOMMENDATION_KEY, duration)
+            }.getOrNull()
+        }
+    }
+
     private suspend fun fetchAlphaOverviewIfNeeded(
         symbol: String,
         current: StockDetails?
@@ -422,6 +454,7 @@ class StockDetailsRepository(
         symbol: String
     ): StockDetails? {
         fallback ?: return this
+        val preferAnalystFallback = fallback.hasAnalystVoteCounts()
         return this?.copy(
             financialDataSource = mergeDataSources(financialDataSource, fallback.financialDataSource),
             reportedCurrency = reportedCurrency ?: fallback.reportedCurrency,
@@ -435,6 +468,25 @@ class StockDetailsRepository(
             lastRevenueActual = lastRevenueActual ?: fallback.lastRevenueActual,
             lastRevenueEstimate = lastRevenueEstimate ?: fallback.lastRevenueEstimate,
             lastRevenueQuarterLabel = lastRevenueQuarterLabel ?: fallback.lastRevenueQuarterLabel,
+            analystTargetMean = analystTargetMean ?: fallback.analystTargetMean,
+            analystTargetHigh = analystTargetHigh ?: fallback.analystTargetHigh,
+            analystTargetLow = analystTargetLow ?: fallback.analystTargetLow,
+            analystOpinionsCount = if (preferAnalystFallback) {
+                fallback.analystOpinionsCount ?: analystOpinionsCount
+            } else {
+                analystOpinionsCount ?: fallback.analystOpinionsCount
+            },
+            analystRecommendation = if (preferAnalystFallback) {
+                fallback.analystRecommendation ?: analystRecommendation
+            } else {
+                analystRecommendation ?: fallback.analystRecommendation
+            },
+            analystStrongBuyCount = analystStrongBuyCount ?: fallback.analystStrongBuyCount,
+            analystBuyCount = analystBuyCount ?: fallback.analystBuyCount,
+            analystHoldCount = analystHoldCount ?: fallback.analystHoldCount,
+            analystSellCount = analystSellCount ?: fallback.analystSellCount,
+            analystStrongSellCount = analystStrongSellCount ?: fallback.analystStrongSellCount,
+            analystConsensusPeriod = analystConsensusPeriod ?: fallback.analystConsensusPeriod,
             totalRevenue = totalRevenue ?: fallback.totalRevenue,
             netIncome = netIncome ?: fallback.netIncome,
             revenueGrowthPct = revenueGrowthPct ?: fallback.revenueGrowthPct,
@@ -463,6 +515,25 @@ class StockDetailsRepository(
             averageVolume10Day = averageVolume10Day ?: fallback.averageVolume10Day,
             currentVolume = currentVolume ?: fallback.currentVolume
         ) ?: fallback.copy(symbol = symbol)
+    }
+
+    private fun FinnhubRecommendationTrend.toDetails(symbol: String): StockDetails {
+        val total = listOf(strongBuy, buy, hold, sell, strongSell)
+            .mapNotNull { it?.takeIf { value -> value >= 0 } }
+            .sum()
+            .takeIf { it > 0 }
+            ?.toLong()
+        return StockDetails(
+            symbol = this.symbol?.takeIf { it.isNotBlank() } ?: symbol,
+            analystOpinionsCount = total,
+            analystRecommendation = consensusKeyFromRecommendationTrend(this),
+            analystStrongBuyCount = strongBuy?.takeIf { it >= 0 },
+            analystBuyCount = buy?.takeIf { it >= 0 },
+            analystHoldCount = hold?.takeIf { it >= 0 },
+            analystSellCount = sell?.takeIf { it >= 0 },
+            analystStrongSellCount = strongSell?.takeIf { it >= 0 },
+            analystConsensusPeriod = period
+        )
     }
 
     private fun FinnhubEarningsCalendarEvent.toDetails(
@@ -541,6 +612,19 @@ private val EDGAR_DURATION_FRAME = Regex("""^CY\d{4}(Q[1-4])?$""")
 private val EDGAR_INSTANT_FRAME = Regex("""^CY\d{4}(Q[1-4])?I$""")
 private val EDGAR_PERIOD_FRAME = Regex("""^CY(\d{4})(Q[1-4])?$""")
 private val EDGAR_FILED_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.US)
+
+private fun consensusKeyFromRecommendationTrend(trend: FinnhubRecommendationTrend): String? {
+    val buckets = listOf(
+        "strong_buy" to (trend.strongBuy ?: 0),
+        "buy" to (trend.buy ?: 0),
+        "hold" to (trend.hold ?: 0),
+        "sell" to (trend.sell ?: 0),
+        "strong_sell" to (trend.strongSell ?: 0)
+    )
+    val total = buckets.sumOf { it.second }
+    if (total <= 0) return null
+    return buckets.maxByOrNull { it.second }?.first
+}
 
 private fun buildFmpDetails(
     symbol: String,
@@ -726,6 +810,12 @@ data class StockDetails(
     val analystTargetLow: Double? = null,
     val analystOpinionsCount: Long? = null,
     val analystRecommendation: String? = null,
+    val analystStrongBuyCount: Int? = null,
+    val analystBuyCount: Int? = null,
+    val analystHoldCount: Int? = null,
+    val analystSellCount: Int? = null,
+    val analystStrongSellCount: Int? = null,
+    val analystConsensusPeriod: String? = null,
     // Core fundamentals
     val totalRevenue: Double? = null,
     val netIncome: Double? = null,
@@ -823,6 +913,15 @@ data class StockDetails(
     fun hasPreferredFinancialSource(): Boolean =
         financialDataSource?.contains("FMP") == true ||
             financialDataSource?.contains("SEC EDGAR") == true
+
+    fun hasAnalystVoteCounts(): Boolean =
+        listOf(
+            analystStrongBuyCount,
+            analystBuyCount,
+            analystHoldCount,
+            analystSellCount,
+            analystStrongSellCount
+        ).sumOf { it ?: 0 } > 0
 }
 
 private fun YahooQuoteSummaryResult.toDetails(symbol: String): StockDetails {

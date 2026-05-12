@@ -434,6 +434,7 @@ private fun FinancialsSection(state: DetailUiState) {
         }
 
         FinancialPunchSummary(details = details, currentPrice = state.quote?.price)
+        AnalystConsensusCard(details = details, currentPrice = state.quote?.price)
 
         FinancialMetricCard("Results") {
             FinancialMetricRow(
@@ -517,6 +518,93 @@ private fun FinancialsSection(state: DetailUiState) {
                 "Analyst target",
                 formatPrice(details.analystTargetMean)
             )
+        }
+    }
+}
+
+@Composable
+private fun AnalystConsensusCard(details: StockDetails, currentPrice: Double?) {
+    val label = analystConsensusLabel(details)
+    val total = analystVoteTotal(details)
+    val target = details.analystTargetMean
+    if (label == null && total <= 0) return
+
+    FinancialMetricCard("Analyst consensus") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    label ?: "--",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = toneForAnalystConsensus(details)?.let { financialToneColor(it) }
+                        ?: MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    analystConsensusSubline(details),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (target != null) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        formatPrice(target),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        details.upsideToTargetPct(currentPrice)?.let { "Target ${"%+.0f%%".format(it)}" }
+                            ?: "Target",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = details.upsideToTargetPct(currentPrice)
+                            ?.let { changeColor(it) }
+                            ?: MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        if (total > 0) {
+            Spacer(Modifier.height(10.dp))
+            AnalystVoteBar(details)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                analystVoteLine(details),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnalystVoteBar(details: StockDetails) {
+    val counts = listOf(
+        details.analystStrongBuyCount ?: 0,
+        details.analystBuyCount ?: 0,
+        details.analystHoldCount ?: 0,
+        details.analystSellCount ?: 0,
+        details.analystStrongSellCount ?: 0
+    )
+    val colors = listOf(
+        changeColor(1.0),
+        changeColor(0.7),
+        androidx.compose.ui.graphics.Color(0xFFE0A72E),
+        changeColor(-0.7),
+        changeColor(-1.0)
+    )
+    Row(Modifier.fillMaxWidth().height(8.dp)) {
+        counts.forEachIndexed { index, count ->
+            if (count > 0) {
+                Box(
+                    modifier = Modifier
+                        .weight(count.toFloat())
+                        .height(8.dp)
+                        .background(colors[index])
+                )
+            }
         }
     }
 }
@@ -826,6 +914,20 @@ private fun toneForPe(value: Double?): FinancialTone? = value?.let {
     }
 }
 
+private fun toneForAnalystConsensus(details: StockDetails): FinancialTone? {
+    val label = analystConsensusLabel(details)?.lowercase() ?: return null
+    val positivePct = analystPositivePct(details)
+    return when {
+        "sell" in label -> FinancialTone.BAD
+        label == "hold" -> FinancialTone.WATCH
+        positivePct != null && positivePct >= 60.0 -> FinancialTone.GOOD
+        positivePct != null && positivePct >= 45.0 -> FinancialTone.WATCH
+        positivePct != null -> FinancialTone.BAD
+        "buy" in label -> FinancialTone.GOOD
+        else -> FinancialTone.WATCH
+    }
+}
+
 private fun formatEpsSurprise(details: StockDetails): String {
     val actual = details.lastEpsActual ?: return "--"
     val estimate = details.lastEpsEstimate
@@ -856,6 +958,59 @@ private fun formatRevenueSurprise(details: StockDetails): String {
 
 private fun revenueResultLabel(details: StockDetails): String =
     if (details.lastRevenueEstimate != null) "Revenue surprise" else "Revenue actual"
+
+private fun analystConsensusLabel(details: StockDetails): String? =
+    when (details.analystRecommendation?.trim()?.lowercase()?.replace("-", "_")?.replace(" ", "_")) {
+        "strong_buy", "strongbuy" -> "Strong buy"
+        "buy" -> "Buy"
+        "hold" -> "Hold"
+        "sell" -> "Sell"
+        "strong_sell", "strongsell" -> "Strong sell"
+        null, "" -> null
+        else -> details.analystRecommendation
+            ?.trim()
+            ?.replace("_", " ")
+            ?.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    }
+
+private fun analystVoteTotal(details: StockDetails): Int =
+    listOf(
+        details.analystStrongBuyCount,
+        details.analystBuyCount,
+        details.analystHoldCount,
+        details.analystSellCount,
+        details.analystStrongSellCount
+    ).sumOf { it ?: 0 }
+
+private fun analystPositiveVotes(details: StockDetails): Int =
+    (details.analystStrongBuyCount ?: 0) + (details.analystBuyCount ?: 0)
+
+private fun analystPositivePct(details: StockDetails): Double? {
+    val total = analystVoteTotal(details)
+    if (total <= 0) return null
+    return analystPositiveVotes(details).toDouble() / total.toDouble() * 100.0
+}
+
+private fun analystConsensusSubline(details: StockDetails): String {
+    val total = analystVoteTotal(details)
+    val positivePct = analystPositivePct(details)
+    val period = details.analystConsensusPeriod
+    return buildList {
+        if (total > 0) add("${positivePct?.let { "%.0f%%".format(it) } ?: "--"} positive")
+        val analystCount = total.takeIf { it > 0 }?.toLong() ?: details.analystOpinionsCount
+        analystCount?.takeIf { it > 0 }?.let { add("$it analysts") }
+        if (!period.isNullOrBlank()) add(period)
+    }.takeIf { it.isNotEmpty() }?.joinToString(" / ") ?: "Latest available analyst view"
+}
+
+private fun analystVoteLine(details: StockDetails): String {
+    val strongBuy = details.analystStrongBuyCount ?: 0
+    val buy = details.analystBuyCount ?: 0
+    val hold = details.analystHoldCount ?: 0
+    val sell = details.analystSellCount ?: 0
+    val strongSell = details.analystStrongSellCount ?: 0
+    return "SB $strongBuy | Buy $buy | Hold $hold | Sell $sell | SS $strongSell"
+}
 
 private val FinancialDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, HH:mm")
 

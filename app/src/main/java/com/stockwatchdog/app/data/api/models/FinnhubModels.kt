@@ -55,3 +55,14 @@ data class FinnhubEarningsCalendarEvent(
     val symbol: String? = null,
     val year: Int? = null
 )
+
+@Serializable
+data class FinnhubRecommendationTrend(
+    val symbol: String? = null,
+    val period: String? = null,
+    val strongBuy: Int? = null,
+    val buy: Int? = null,
+    val hold: Int? = null,
+    val sell: Int? = null,
+    val strongSell: Int? = null
+)

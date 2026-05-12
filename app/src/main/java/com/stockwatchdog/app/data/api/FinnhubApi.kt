@@ -2,6 +2,7 @@ package com.stockwatchdog.app.data.api
 
 import com.stockwatchdog.app.data.api.models.FinnhubQuote
 import com.stockwatchdog.app.data.api.models.FinnhubEarningsCalendarResponse
+import com.stockwatchdog.app.data.api.models.FinnhubRecommendationTrend
 import com.stockwatchdog.app.data.api.models.FinnhubSymbolSearch
 import retrofit2.http.GET
 import retrofit2.http.Query
@@ -33,4 +34,10 @@ interface FinnhubApi {
         @Query("symbol") symbol: String,
         @Query("token") apiKey: String
     ): FinnhubEarningsCalendarResponse
+
+    @GET("stock/recommendation")
+    suspend fun recommendationTrends(
+        @Query("symbol") symbol: String,
+        @Query("token") apiKey: String
+    ): List<FinnhubRecommendationTrend>
 }
