@@ -90,6 +90,15 @@ android {
             "String", "FMP_API_KEY",
             "\"${localProp("FMP_API_KEY")}\""
         )
+        // SEC asks automated EDGAR clients to identify the app with contact info.
+        // Set SEC_USER_AGENT in local.properties or CI secrets with a real email.
+        buildConfigField(
+            "String", "SEC_USER_AGENT",
+            "\"${localProp(
+                "SEC_USER_AGENT",
+                "StockWatchdog/1.0 Android LiptontechDesign (https://github.com/LiptontechDesign/StockWatchdog)"
+            )}\""
+        )
     }
 
     buildTypes {

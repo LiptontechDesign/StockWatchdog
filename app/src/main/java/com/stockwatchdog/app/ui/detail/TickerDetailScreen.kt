@@ -445,7 +445,7 @@ private fun FinancialsSection(state: DetailUiState) {
             )
             Spacer(Modifier.height(8.dp))
             FinancialMetricRow(
-                "Revenue surprise",
+                revenueResultLabel(details),
                 formatRevenueSurprise(details),
                 "Report period",
                 details.latestFinancialPeriod ?: details.lastEpsQuarterLabel ?: "--",
@@ -853,6 +853,9 @@ private fun formatRevenueSurprise(details: StockDetails): String {
         else -> formatCompactMoney(actual)
     }
 }
+
+private fun revenueResultLabel(details: StockDetails): String =
+    if (details.lastRevenueEstimate != null) "Revenue surprise" else "Revenue actual"
 
 private val FinancialDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, HH:mm")
 

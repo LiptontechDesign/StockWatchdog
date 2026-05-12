@@ -2,8 +2,10 @@ package com.stockwatchdog.app.di
 
 import android.content.Context
 import androidx.room.Room
+import com.stockwatchdog.app.BuildConfig
 import com.stockwatchdog.app.data.api.AlphaVantageApi
 import com.stockwatchdog.app.data.api.DipFinderRepository
+import com.stockwatchdog.app.data.api.EdgarApi
 import com.stockwatchdog.app.data.api.FinnhubApi
 import com.stockwatchdog.app.data.api.FmpApi
 import com.stockwatchdog.app.data.api.MarketDataRepository
@@ -40,15 +42,22 @@ class AppContainer(private val context: Context) {
         .retryOnConnectionFailure(true)
         .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
         .addInterceptor { chain ->
+            val original = chain.request()
+            val host = original.url.host.lowercase()
+            val userAgent = if (host.endsWith("sec.gov")) {
+                BuildConfig.SEC_USER_AGENT
+            } else {
+                original.header("User-Agent") ?: "StockWatchdog/1.0 Android"
+            }
             val request = chain.request().newBuilder()
-                .header("User-Agent", "StockWatchdog/1.0 Android")
+                .header("User-Agent", userAgent)
                 .header("Accept", "application/json")
                 .build()
             chain.proceed(request)
         }
         .apply {
             // Keep logging quiet on release; enable verbose only for debug builds.
-            if (com.stockwatchdog.app.BuildConfig.DEBUG) {
+            if (BuildConfig.DEBUG) {
                 addInterceptor(HttpLoggingInterceptor().apply {
                     level = HttpLoggingInterceptor.Level.BASIC
                 })
@@ -92,6 +101,13 @@ class AppContainer(private val context: Context) {
         .addConverterFactory(converter)
         .build()
         .create(FmpApi::class.java)
+
+    private val edgar: EdgarApi = Retrofit.Builder()
+        .baseUrl("https://data.sec.gov/")
+        .client(httpClient)
+        .addConverterFactory(converter)
+        .build()
+        .create(EdgarApi::class.java)
 
     private val providerCooldown: ProviderCooldown = ProviderCooldown()
 
@@ -138,6 +154,7 @@ class AppContainer(private val context: Context) {
         finnhub = finnhub,
         alphaVantage = alphaVantage,
         fmp = fmp,
+        edgar = edgar,
         settings = settingsRepository,
         cooldown = providerCooldown
     )

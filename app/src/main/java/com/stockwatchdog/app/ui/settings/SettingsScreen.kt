@@ -76,8 +76,8 @@ fun SettingsScreen(container: AppContainer) {
             SectionHeader("Data provider")
             Text(
                 "Auto rotates between Finnhub, Twelve Data, Yahoo Finance and " +
-                    "Alpha Vantage for prices. FMP is used for deeper financial " +
-                    "statements when a key is saved.",
+                    "Alpha Vantage for prices. FMP and official SEC EDGAR filings " +
+                    "are used for deeper financial statements when available.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp)
