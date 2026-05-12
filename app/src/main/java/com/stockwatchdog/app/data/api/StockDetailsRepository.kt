@@ -1,6 +1,7 @@
 package com.stockwatchdog.app.data.api
 
 import com.stockwatchdog.app.data.api.models.FinnhubEarningsCalendarEvent
+import com.stockwatchdog.app.data.api.models.AlphaCompanyOverview
 import com.stockwatchdog.app.data.api.models.YahooQuoteSummaryResult
 import com.stockwatchdog.app.data.prefs.SettingsRepository
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,7 @@ import java.time.format.DateTimeFormatter
 class StockDetailsRepository(
     private val yahoo: YahooFinanceApi,
     private val finnhub: FinnhubApi,
+    private val alphaVantage: AlphaVantageApi,
     private val settings: SettingsRepository,
     private val cooldown: ProviderCooldown
 ) {
@@ -68,7 +70,7 @@ class StockDetailsRepository(
             fetchYahooDetails(s) ?: cachedOrNull(s)
         }
 
-        val fresh = if (
+        val withEarnings = if (
             yahooDetails == null ||
             yahooDetails.nextEarningsEpochSeconds == null ||
             yahooDetails.nextEarningsQuarterLabel == null
@@ -76,7 +78,11 @@ class StockDetailsRepository(
             yahooDetails.withEarningsFallback(fetchFinnhubEarnings(s), s)
         } else {
             yahooDetails
-        } ?: return cachedOrNull(s)
+        }
+
+        val fresh = withEarnings
+            .withFundamentalsFallback(fetchAlphaOverviewIfNeeded(s, withEarnings), s)
+            ?: return cachedOrNull(s)
 
         lock.withLock {
             cache[s] = CachedDetails(fresh, System.currentTimeMillis())
@@ -108,6 +114,7 @@ class StockDetailsRepository(
     private companion object {
         const val YAHOO_SUMMARY_KEY = "YAHOO_QUOTE_SUMMARY"
         const val FINNHUB_EARNINGS_KEY = "FINNHUB_EARNINGS"
+        const val ALPHA_OVERVIEW_KEY = "ALPHA_OVERVIEW_DETAILS"
         val NAIROBI_ZONE: ZoneId = ZoneId.of("Africa/Nairobi")
         val FINNHUB_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
     }
@@ -176,6 +183,35 @@ class StockDetailsRepository(
         }
     }
 
+    private suspend fun fetchAlphaOverviewIfNeeded(
+        symbol: String,
+        current: StockDetails?
+    ): StockDetails? {
+        if (current != null && !current.needsFundamentalFallback()) return null
+        if (cooldown.isCoolingDown(ALPHA_OVERVIEW_KEY)) return null
+        val apiKey = settings.settings.first().alphaVantageKey
+        if (apiKey.isBlank()) return null
+
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val response = alphaVantage.overview(symbol, apiKey)
+                if (!response.note.isNullOrBlank() || !response.information.isNullOrBlank()) {
+                    cooldown.trip(ALPHA_OVERVIEW_KEY, ProviderCooldown.PER_DAY_CAP_MS)
+                    return@runCatching null
+                }
+                response.toDetails(symbol)
+            }.onFailure {
+                val msg = it.message ?: ""
+                val duration = if ("limit" in msg.lowercase() || "quota" in msg.lowercase()) {
+                    ProviderCooldown.PER_DAY_CAP_MS
+                } else {
+                    ProviderCooldown.PER_MINUTE_CAP_MS
+                }
+                cooldown.trip(ALPHA_OVERVIEW_KEY, duration)
+            }.getOrNull()
+        }
+    }
+
     private fun StockDetails?.withEarningsFallback(
         fallback: StockDetails?,
         symbol: String
@@ -188,6 +224,34 @@ class StockDetailsRepository(
             lastEpsActual = lastEpsActual ?: fallback.lastEpsActual,
             lastEpsEstimate = lastEpsEstimate ?: fallback.lastEpsEstimate,
             lastEpsQuarterLabel = lastEpsQuarterLabel ?: fallback.lastEpsQuarterLabel
+        ) ?: fallback.copy(symbol = symbol)
+    }
+
+    private fun StockDetails?.withFundamentalsFallback(
+        fallback: StockDetails?,
+        symbol: String
+    ): StockDetails? {
+        fallback ?: return this
+        return this?.copy(
+            totalRevenue = totalRevenue ?: fallback.totalRevenue,
+            revenueGrowthPct = revenueGrowthPct ?: fallback.revenueGrowthPct,
+            epsGrowthPct = epsGrowthPct ?: fallback.epsGrowthPct,
+            grossMarginPct = grossMarginPct ?: fallback.grossMarginPct,
+            operatingMarginPct = operatingMarginPct ?: fallback.operatingMarginPct,
+            profitMarginPct = profitMarginPct ?: fallback.profitMarginPct,
+            freeCashflow = freeCashflow ?: fallback.freeCashflow,
+            operatingCashflow = operatingCashflow ?: fallback.operatingCashflow,
+            totalCash = totalCash ?: fallback.totalCash,
+            totalDebt = totalDebt ?: fallback.totalDebt,
+            debtToEquity = debtToEquity ?: fallback.debtToEquity,
+            currentRatio = currentRatio ?: fallback.currentRatio,
+            trailingPe = trailingPe ?: fallback.trailingPe,
+            forwardPe = forwardPe ?: fallback.forwardPe,
+            pegRatio = pegRatio ?: fallback.pegRatio,
+            priceToBook = priceToBook ?: fallback.priceToBook,
+            epsTtm = epsTtm ?: fallback.epsTtm,
+            forwardEps = forwardEps ?: fallback.forwardEps,
+            dividendYieldPct = dividendYieldPct ?: fallback.dividendYieldPct
         ) ?: fallback.copy(symbol = symbol)
     }
 
@@ -234,6 +298,26 @@ data class StockDetails(
     val analystTargetLow: Double? = null,
     val analystOpinionsCount: Long? = null,
     val analystRecommendation: String? = null,
+    // Core fundamentals
+    val totalRevenue: Double? = null,
+    val revenueGrowthPct: Double? = null,
+    val epsGrowthPct: Double? = null,
+    val grossMarginPct: Double? = null,
+    val operatingMarginPct: Double? = null,
+    val profitMarginPct: Double? = null,
+    val freeCashflow: Double? = null,
+    val operatingCashflow: Double? = null,
+    val totalCash: Double? = null,
+    val totalDebt: Double? = null,
+    val debtToEquity: Double? = null,
+    val currentRatio: Double? = null,
+    val trailingPe: Double? = null,
+    val forwardPe: Double? = null,
+    val pegRatio: Double? = null,
+    val priceToBook: Double? = null,
+    val epsTtm: Double? = null,
+    val forwardEps: Double? = null,
+    val dividendYieldPct: Double? = null,
     // 52-week range + trend baselines
     val fiftyTwoWeekHigh: Double? = null,
     val fiftyTwoWeekLow: Double? = null,
@@ -286,12 +370,26 @@ data class StockDetails(
         if (avg <= 0L) return null
         return recent.toDouble() / avg.toDouble()
     }
+
+    fun needsFundamentalFallback(): Boolean =
+        totalRevenue == null &&
+            revenueGrowthPct == null &&
+            epsGrowthPct == null &&
+            profitMarginPct == null &&
+            freeCashflow == null &&
+            totalDebt == null &&
+            debtToEquity == null &&
+            trailingPe == null &&
+            epsTtm == null
 }
 
 private fun YahooQuoteSummaryResult.toDetails(symbol: String): StockDetails {
     val cal = calendarEvents?.earnings
     val chart = earnings?.earningsChart
     val lastQ = chart?.quarterly?.lastOrNull()
+    val fd = financialData
+    val sd = summaryDetail
+    val stats = defaultKeyStatistics
 
     return StockDetails(
         symbol = symbol,
@@ -303,19 +401,68 @@ private fun YahooQuoteSummaryResult.toDetails(symbol: String): StockDetails {
         lastEpsActual = lastQ?.actual?.raw,
         lastEpsEstimate = lastQ?.estimate?.raw,
         lastEpsQuarterLabel = lastQ?.date,
-        analystTargetMean = financialData?.targetMeanPrice?.raw,
-        analystTargetHigh = financialData?.targetHighPrice?.raw,
-        analystTargetLow = financialData?.targetLowPrice?.raw,
-        analystOpinionsCount = financialData?.numberOfAnalystOpinions?.raw,
-        analystRecommendation = financialData?.recommendationKey,
-        fiftyTwoWeekHigh = summaryDetail?.fiftyTwoWeekHigh?.raw,
-        fiftyTwoWeekLow = summaryDetail?.fiftyTwoWeekLow?.raw,
-        twoHundredDayAverage = summaryDetail?.twoHundredDayAverage?.raw,
-        fiftyDayAverage = summaryDetail?.fiftyDayAverage?.raw,
-        averageVolume = summaryDetail?.averageVolume?.raw,
-        averageVolume10Day = summaryDetail?.averageDailyVolume10Day?.raw,
-        currentVolume = summaryDetail?.regularMarketVolume?.raw ?: summaryDetail?.volume?.raw
+        analystTargetMean = fd?.targetMeanPrice?.raw,
+        analystTargetHigh = fd?.targetHighPrice?.raw,
+        analystTargetLow = fd?.targetLowPrice?.raw,
+        analystOpinionsCount = fd?.numberOfAnalystOpinions?.raw,
+        analystRecommendation = fd?.recommendationKey,
+        totalRevenue = fd?.totalRevenue?.raw,
+        revenueGrowthPct = fd?.revenueGrowth?.raw?.asRatioPercent(),
+        epsGrowthPct = fd?.earningsGrowth?.raw?.asRatioPercent(),
+        grossMarginPct = fd?.grossMargins?.raw?.asRatioPercent(),
+        operatingMarginPct = fd?.operatingMargins?.raw?.asRatioPercent(),
+        profitMarginPct = fd?.profitMargins?.raw?.asRatioPercent(),
+        freeCashflow = fd?.freeCashflow?.raw,
+        operatingCashflow = fd?.operatingCashflow?.raw,
+        totalCash = fd?.totalCash?.raw,
+        totalDebt = fd?.totalDebt?.raw,
+        debtToEquity = fd?.debtToEquity?.raw,
+        currentRatio = fd?.currentRatio?.raw,
+        trailingPe = sd?.trailingPE?.raw,
+        forwardPe = sd?.forwardPE?.raw,
+        pegRatio = stats?.pegRatio?.raw,
+        priceToBook = stats?.priceToBook?.raw,
+        epsTtm = stats?.trailingEps?.raw,
+        forwardEps = stats?.forwardEps?.raw,
+        dividendYieldPct = sd?.dividendYield?.raw?.asRatioPercent(),
+        fiftyTwoWeekHigh = sd?.fiftyTwoWeekHigh?.raw,
+        fiftyTwoWeekLow = sd?.fiftyTwoWeekLow?.raw,
+        twoHundredDayAverage = sd?.twoHundredDayAverage?.raw,
+        fiftyDayAverage = sd?.fiftyDayAverage?.raw,
+        averageVolume = sd?.averageVolume?.raw,
+        averageVolume10Day = sd?.averageDailyVolume10Day?.raw,
+        currentVolume = sd?.regularMarketVolume?.raw ?: sd?.volume?.raw
     )
+}
+
+private fun AlphaCompanyOverview.toDetails(symbol: String): StockDetails =
+    StockDetails(
+        symbol = this.symbol?.takeIf { it.isNotBlank() } ?: symbol,
+        totalRevenue = revenueTtm.toFiniteDoubleOrNull(),
+        revenueGrowthPct = quarterlyRevenueGrowthYoY.toRatioPercentOrNull(),
+        epsGrowthPct = quarterlyEarningsGrowthYoY.toRatioPercentOrNull(),
+        operatingMarginPct = operatingMargin.toRatioPercentOrNull(),
+        profitMarginPct = profitMargin.toRatioPercentOrNull(),
+        debtToEquity = debtToEquity.toFiniteDoubleOrNull(),
+        trailingPe = peRatio.toFiniteDoubleOrNull(),
+        pegRatio = pegRatio.toFiniteDoubleOrNull(),
+        priceToBook = priceToBookRatio.toFiniteDoubleOrNull(),
+        epsTtm = eps.toFiniteDoubleOrNull(),
+        fiftyTwoWeekHigh = high52w.toFiniteDoubleOrNull(),
+        fiftyTwoWeekLow = low52w.toFiniteDoubleOrNull(),
+        twoHundredDayAverage = ma200.toFiniteDoubleOrNull()
+    )
+
+private fun Double.asRatioPercent(): Double = this * 100.0
+
+private fun String?.toRatioPercentOrNull(): Double? =
+    toFiniteDoubleOrNull()?.let { it * 100.0 }
+
+private fun String?.toFiniteDoubleOrNull(): Double? {
+    val value = this?.takeUnless { it.equals("None", ignoreCase = true) }
+        ?.takeUnless { it == "-" }
+        ?.toDoubleOrNull()
+    return value?.takeIf { it.isFinite() }
 }
 
 private fun normaliseQuarterLabel(rawQuarter: String?, year: Int?): String? {

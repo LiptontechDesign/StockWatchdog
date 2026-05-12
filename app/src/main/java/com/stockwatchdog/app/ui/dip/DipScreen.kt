@@ -540,6 +540,21 @@ private fun DipRowCard(
             // ── Metric chips grid (2 rows of 2) ──────────────────────
             MetricsGrid(row = row)
 
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onClick) {
+                    Icon(
+                        Icons.Default.ShowChart,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Key data")
+                }
+            }
+
             // ── Notes ───────────────────────────────────────────────
             row.entity.notes?.takeIf { it.isNotBlank() }?.let { note ->
                 Text(

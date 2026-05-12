@@ -67,6 +67,6 @@ interface YahooFinanceApi {
     suspend fun quoteSummary(
         @Path("symbol") symbol: String,
         @Query("modules") modules: String =
-            "calendarEvents,earnings,financialData,summaryDetail"
+            "calendarEvents,earnings,financialData,summaryDetail,defaultKeyStatistics"
     ): YahooQuoteSummaryEnvelope
 }

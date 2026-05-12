@@ -57,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.stockwatchdog.app.data.api.StockDetails
 import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.AlertType
 import com.stockwatchdog.app.data.db.entities.PositionLotEntity
@@ -69,6 +70,9 @@ import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.components.formatSignedChange
 import com.stockwatchdog.app.ui.components.formatSignedPercent
 import com.stockwatchdog.app.ui.components.formatVolume
+import com.stockwatchdog.app.util.MarketClock
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,6 +88,7 @@ fun TickerDetailScreen(
                 TickerDetailViewModel(
                     symbol = symbol,
                     repo = container.marketDataRepository,
+                    detailsRepo = container.stockDetailsRepository,
                     watchlistDao = container.database.watchlistDao(),
                     alertDao = container.database.alertDao(),
                     positionLotDao = container.database.positionLotDao(),
@@ -138,7 +143,7 @@ fun TickerDetailScreen(
         }
     ) { padding ->
         var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-        val tabTitles = listOf("Position", "Alerts")
+        val tabTitles = listOf("Position", "Alerts", "Financials")
 
         Column(
             Modifier
@@ -194,6 +199,7 @@ fun TickerDetailScreen(
                         onToggle = vm::toggleAlert,
                         onDelete = vm::confirmDeleteAlert
                     )
+                    2 -> FinancialsSection(state = state)
                 }
                 Spacer(Modifier.height(24.dp))
             }
@@ -399,6 +405,276 @@ private fun SummaryCell(label: String, value: String, modifier: Modifier = Modif
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun FinancialsSection(state: DetailUiState) {
+    val details = state.details
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Financials", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            if (state.detailsLoading) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            }
+        }
+
+        if (details == null) {
+            Text(
+                state.detailsError ?: "Financial data is loading.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return
+        }
+
+        FinancialReadCard(details = details, currentPrice = state.quote?.price)
+
+        FinancialMetricCard("Results") {
+            FinancialMetricRow(
+                "Next results",
+                formatFinancialDate(details.nextEarningsEpochSeconds),
+                "Last EPS",
+                formatEpsSurprise(details)
+            )
+            Spacer(Modifier.height(8.dp))
+            FinancialMetricRow(
+                "Revenue surprise",
+                "--",
+                "Guidance",
+                "--"
+            )
+        }
+
+        FinancialMetricCard("Growth") {
+            FinancialMetricRow(
+                "Revenue growth",
+                formatSignedPercentOne(details.revenueGrowthPct),
+                "EPS growth",
+                formatSignedPercentOne(details.epsGrowthPct),
+                value1Positive = details.revenueGrowthPct,
+                value2Positive = details.epsGrowthPct
+            )
+        }
+
+        FinancialMetricCard("Profitability") {
+            FinancialMetricRow(
+                "Revenue",
+                formatCompactMoney(details.totalRevenue),
+                "Profit margin",
+                formatPercentOne(details.profitMarginPct),
+                value2Positive = details.profitMarginPct
+            )
+            Spacer(Modifier.height(8.dp))
+            FinancialMetricRow(
+                "Operating margin",
+                formatPercentOne(details.operatingMarginPct),
+                "Free cash flow",
+                formatCompactMoney(details.freeCashflow),
+                value1Positive = details.operatingMarginPct,
+                value2Positive = details.freeCashflow
+            )
+        }
+
+        FinancialMetricCard("Safety") {
+            FinancialMetricRow(
+                "Debt / equity",
+                formatRatio(details.debtToEquity),
+                "Total debt",
+                formatCompactMoney(details.totalDebt)
+            )
+            Spacer(Modifier.height(8.dp))
+            FinancialMetricRow(
+                "Cash",
+                formatCompactMoney(details.totalCash),
+                "Current ratio",
+                formatRatio(details.currentRatio)
+            )
+        }
+
+        FinancialMetricCard("Valuation") {
+            FinancialMetricRow(
+                "P/E",
+                formatMultiple(details.trailingPe),
+                "Forward P/E",
+                formatMultiple(details.forwardPe)
+            )
+            Spacer(Modifier.height(8.dp))
+            FinancialMetricRow(
+                "EPS",
+                formatPlainNumber(details.epsTtm),
+                "Analyst target",
+                formatPrice(details.analystTargetMean)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FinancialReadCard(details: StockDetails, currentPrice: Double?) {
+    val notes = buildFinancialRead(details, currentPrice)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Simple read", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                notes.ifBlank { "Not enough free fundamental data yet for a clean read." },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun FinancialMetricCard(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(10.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun FinancialMetricRow(
+    label1: String,
+    value1: String,
+    label2: String,
+    value2: String,
+    value1Positive: Double? = null,
+    value2Positive: Double? = null
+) {
+    Row(Modifier.fillMaxWidth()) {
+        FinancialMetricCell(label1, value1, value1Positive, Modifier.weight(1f))
+        Spacer(Modifier.size(16.dp))
+        FinancialMetricCell(label2, value2, value2Positive, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun FinancialMetricCell(
+    label: String,
+    value: String,
+    signedTone: Double?,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = signedTone?.let { changeColor(it) } ?: MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun buildFinancialRead(details: StockDetails, currentPrice: Double?): String {
+    val parts = mutableListOf<String>()
+    details.revenueGrowthPct?.let {
+        parts += if (it >= 0) "sales growing" else "sales falling"
+    }
+    details.epsGrowthPct?.let {
+        parts += if (it >= 0) "EPS improving" else "EPS weakening"
+    }
+    details.profitMarginPct?.let {
+        parts += when {
+            it >= 20.0 -> "strong margin"
+            it > 0.0 -> "positive margin"
+            else -> "margin pressure"
+        }
+    }
+    details.debtToEquity?.let {
+        parts += if (it <= 100.0) "debt looks manageable" else "debt is elevated"
+    }
+    details.trailingPe?.let {
+        parts += when {
+            it <= 0.0 -> "valuation unclear"
+            it < 18.0 -> "valuation modest"
+            it <= 35.0 -> "valuation fair"
+            else -> "valuation rich"
+        }
+    }
+    details.upsideToTargetPct(currentPrice)?.let {
+        parts += if (it >= 0) "analysts see upside" else "target sits below price"
+    }
+    return parts.joinToString(separator = ", ").replaceFirstChar { it.uppercaseChar() }
+}
+
+private fun formatEpsSurprise(details: StockDetails): String {
+    val actual = details.lastEpsActual ?: return "--"
+    val estimate = details.lastEpsEstimate
+    val surprise = details.epsSurprisePct()
+    return when {
+        surprise != null -> {
+            val label = if (surprise >= 0) "beat" else "miss"
+            "${formatPlainNumber(actual)} ($label ${formatPercentOne(kotlin.math.abs(surprise))})"
+        }
+        estimate != null -> "${formatPlainNumber(actual)} vs ${formatPlainNumber(estimate)}"
+        else -> formatPlainNumber(actual)
+    }
+}
+
+private val FinancialDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, HH:mm")
+
+private fun formatFinancialDate(epochSeconds: Long?): String =
+    epochSeconds
+        ?.let { Instant.ofEpochSecond(it).atZone(MarketClock.KENYA).format(FinancialDateFormat) + " EAT" }
+        ?: "--"
+
+private fun formatSignedPercentOne(value: Double?): String =
+    value?.let { "%+.1f%%".format(it) } ?: "--"
+
+private fun formatPercentOne(value: Double?): String =
+    value?.let { "%.1f%%".format(it) } ?: "--"
+
+private fun formatRatio(value: Double?): String =
+    value?.let { "%.2f".format(it) } ?: "--"
+
+private fun formatMultiple(value: Double?): String =
+    value?.takeIf { it > 0 }?.let { "%.1fx".format(it) } ?: "--"
+
+private fun formatPlainNumber(value: Double?): String =
+    value?.let { "%.2f".format(it) } ?: "--"
+
+private fun formatCompactMoney(value: Double?): String {
+    value ?: return "--"
+    val abs = kotlin.math.abs(value)
+    val sign = if (value < 0) "-" else ""
+    return when {
+        abs >= 1_000_000_000_000.0 -> "$sign${"%.2f".format(abs / 1_000_000_000_000.0)}T"
+        abs >= 1_000_000_000.0 -> "$sign${"%.2f".format(abs / 1_000_000_000.0)}B"
+        abs >= 1_000_000.0 -> "$sign${"%.2f".format(abs / 1_000_000.0)}M"
+        abs >= 1_000.0 -> "$sign${"%.1f".format(abs / 1_000.0)}K"
+        else -> "$sign${"%.0f".format(abs)}"
     }
 }
 

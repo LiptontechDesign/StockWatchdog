@@ -3,6 +3,8 @@ package com.stockwatchdog.app.ui.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stockwatchdog.app.data.api.MarketDataRepository
+import com.stockwatchdog.app.data.api.StockDetails
+import com.stockwatchdog.app.data.api.StockDetailsRepository
 import com.stockwatchdog.app.data.db.AlertDao
 import com.stockwatchdog.app.data.db.PositionLotDao
 import com.stockwatchdog.app.data.db.WatchlistDao
@@ -34,6 +36,9 @@ data class DetailUiState(
     val points: List<PricePoint> = emptyList(),
     val chartLoading: Boolean = false,
     val chartError: String? = null,
+    val details: StockDetails? = null,
+    val detailsLoading: Boolean = false,
+    val detailsError: String? = null,
     val inWatchlist: Boolean = false,
     /** All recorded buys for this ticker, oldest first. */
     val lots: List<PositionLotEntity> = emptyList(),
@@ -58,6 +63,7 @@ data class DetailUiState(
 class TickerDetailViewModel(
     private val symbol: String,
     private val repo: MarketDataRepository,
+    private val detailsRepo: StockDetailsRepository,
     private val watchlistDao: WatchlistDao,
     private val alertDao: AlertDao,
     private val positionLotDao: PositionLotDao,
@@ -110,6 +116,23 @@ class TickerDetailViewModel(
                     it.copy(quoteLoading = false, quoteError = r.message)
                 }
             }
+        }
+        viewModelScope.launch { loadDetails(force) }
+    }
+
+    private suspend fun loadDetails(force: Boolean) {
+        _ui.update { it.copy(detailsLoading = true, detailsError = null) }
+        val details = runCatching {
+            detailsRepo.get(symbol, forceRefresh = force)
+        }.getOrNull()
+        _ui.update {
+            it.copy(
+                details = details,
+                detailsLoading = false,
+                detailsError = if (details == null) {
+                    "Financial data is unavailable for this ticker right now."
+                } else null
+            )
         }
     }
 

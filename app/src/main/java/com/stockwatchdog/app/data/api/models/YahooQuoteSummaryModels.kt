@@ -38,7 +38,8 @@ data class YahooQuoteSummaryResult(
     val calendarEvents: YahooCalendarEvents? = null,
     val earnings: YahooEarnings? = null,
     val financialData: YahooFinancialData? = null,
-    val summaryDetail: YahooSummaryDetail? = null
+    val summaryDetail: YahooSummaryDetail? = null,
+    val defaultKeyStatistics: YahooDefaultKeyStatistics? = null
 )
 
 @Serializable
@@ -105,7 +106,20 @@ data class YahooFinancialData(
     val numberOfAnalystOpinions: YahooRawLong? = null,
     val recommendationKey: String? = null,
     val recommendationMean: YahooRawNumber? = null,
-    val currentPrice: YahooRawNumber? = null
+    val currentPrice: YahooRawNumber? = null,
+    val totalRevenue: YahooRawNumber? = null,
+    val revenueGrowth: YahooRawNumber? = null,
+    val earningsGrowth: YahooRawNumber? = null,
+    val grossMargins: YahooRawNumber? = null,
+    val ebitdaMargins: YahooRawNumber? = null,
+    val operatingMargins: YahooRawNumber? = null,
+    val profitMargins: YahooRawNumber? = null,
+    val freeCashflow: YahooRawNumber? = null,
+    val operatingCashflow: YahooRawNumber? = null,
+    val totalCash: YahooRawNumber? = null,
+    val totalDebt: YahooRawNumber? = null,
+    val debtToEquity: YahooRawNumber? = null,
+    val currentRatio: YahooRawNumber? = null
 )
 
 // ---- summaryDetail ----------------------------------------------------------
@@ -116,8 +130,21 @@ data class YahooSummaryDetail(
     val fiftyTwoWeekLow: YahooRawNumber? = null,
     val twoHundredDayAverage: YahooRawNumber? = null,
     val fiftyDayAverage: YahooRawNumber? = null,
+    val trailingPE: YahooRawNumber? = null,
+    val forwardPE: YahooRawNumber? = null,
+    val dividendYield: YahooRawNumber? = null,
     val averageVolume: YahooRawLong? = null,
     val averageDailyVolume10Day: YahooRawLong? = null,
     val volume: YahooRawLong? = null,
     val regularMarketVolume: YahooRawLong? = null
+)
+
+@Serializable
+data class YahooDefaultKeyStatistics(
+    val trailingEps: YahooRawNumber? = null,
+    val forwardEps: YahooRawNumber? = null,
+    val pegRatio: YahooRawNumber? = null,
+    val priceToBook: YahooRawNumber? = null,
+    val enterpriseToRevenue: YahooRawNumber? = null,
+    val enterpriseToEbitda: YahooRawNumber? = null
 )
