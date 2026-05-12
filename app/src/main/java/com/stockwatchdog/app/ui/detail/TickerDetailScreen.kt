@@ -433,6 +433,7 @@ private fun FinancialsSection(state: DetailUiState) {
         }
 
         FinancialReadCard(details = details, currentPrice = state.quote?.price)
+        FinancialMeaningCard(details = details)
 
         FinancialMetricCard("Results") {
             FinancialMetricRow(
@@ -537,6 +538,30 @@ private fun FinancialReadCard(details: StockDetails, currentPrice: Double?) {
 }
 
 @Composable
+private fun FinancialMeaningCard(details: StockDetails) {
+    val lines = buildFinancialMeaning(details)
+    if (lines.isEmpty()) return
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Plain meaning", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            lines.forEach { line ->
+                Text(
+                    line,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun FinancialMetricCard(
     title: String,
     content: @Composable () -> Unit
@@ -627,6 +652,50 @@ private fun buildFinancialRead(details: StockDetails, currentPrice: Double?): St
         parts += if (it >= 0) "analysts see upside" else "target sits below price"
     }
     return parts.joinToString(separator = ", ").replaceFirstChar { it.uppercaseChar() }
+}
+
+private fun buildFinancialMeaning(details: StockDetails): List<String> {
+    val lines = mutableListOf<String>()
+    details.revenueGrowthPct?.let {
+        lines += if (it >= 0) {
+            "Revenue growth: sales are increasing, which is usually a healthy sign."
+        } else {
+            "Revenue growth: sales are falling, so demand or pricing may be under pressure."
+        }
+    }
+    details.epsGrowthPct?.let {
+        lines += if (it >= 0) {
+            "EPS growth: profit per share is improving; stock prices often follow this over time."
+        } else {
+            "EPS growth: profit per share is weakening, which can pressure the stock."
+        }
+    }
+    details.profitMarginPct?.let {
+        lines += when {
+            it >= 20.0 -> "Profit margin: the company keeps a strong share of sales as profit."
+            it > 0.0 -> "Profit margin: the company is profitable, but check whether margins are improving."
+            else -> "Profit margin: the company is not keeping profit from sales right now."
+        }
+    }
+    details.debtToEquity?.let {
+        lines += if (it <= 100.0) {
+            "Debt: borrowing looks manageable compared with shareholder equity."
+        } else {
+            "Debt: borrowing is elevated, so interest costs and risk matter more."
+        }
+    }
+    details.trailingPe?.let {
+        lines += when {
+            it <= 0.0 -> "P/E: valuation is unclear because earnings are negative or unavailable."
+            it < 18.0 -> "P/E: the stock looks modestly priced compared with current profit."
+            it <= 35.0 -> "P/E: investors are paying a reasonable-to-premium price for profit."
+            else -> "P/E: the stock is expensive unless profit grows strongly."
+        }
+    }
+    if (lines.isEmpty() && details.nextEarningsEpochSeconds != null) {
+        lines += "Results date: watch the next report because fresh numbers can change the buy case."
+    }
+    return lines.take(5)
 }
 
 private fun formatEpsSurprise(details: StockDetails): String {
