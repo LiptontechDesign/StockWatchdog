@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "993003397526",
+    "project_id": "stockwatchdog-41541",
+    "storage_bucket": "stockwatchdog-41541.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:993003397526:android:c13525de0692c29f4d7db7",
+        "android_client_info": {
+          "package_name": "com.stockwatchdog.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAJWWzr0OAeUOmliSSptcYIHXYIlwmgT00"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -3,6 +3,7 @@ package com.stockwatchdog.app
 import android.app.Application
 import androidx.work.Configuration
 import com.stockwatchdog.app.di.AppContainer
+import com.stockwatchdog.app.firebase.FirebaseServices
 import com.stockwatchdog.app.notifications.NotificationHelper
 import com.stockwatchdog.app.work.AlertWorkScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +21,7 @@ class StockWatchdogApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        FirebaseServices.configure(this)
         container = AppContainer(this)
         NotificationHelper.ensureChannel(this)
 
