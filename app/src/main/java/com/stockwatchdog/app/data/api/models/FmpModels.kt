@@ -1,5 +1,6 @@
 package com.stockwatchdog.app.data.api.models
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -68,4 +69,15 @@ data class FmpQuote(
     val volume: Long? = null,
     val marketCap: Double? = null,
     val timestamp: Long? = null
+)
+
+@Serializable
+data class FmpAnalystRecommendation(
+    val symbol: String? = null,
+    val date: String? = null,
+    val analystRatingsStrongBuy: Int? = null,
+    @SerialName("analystRatingsbuy") val analystRatingsBuy: Int? = null,
+    val analystRatingsHold: Int? = null,
+    val analystRatingsSell: Int? = null,
+    val analystRatingsStrongSell: Int? = null
 )

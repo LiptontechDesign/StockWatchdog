@@ -690,10 +690,15 @@ private fun DipExpandedDetails(
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        lines.forEachIndexed { index, line ->
+        var analystShown = false
+        lines.forEach { line ->
             DipDetailLine(line)
-            if (index == 2) DipAnalystCallout(analystLine)
+            if (line.label == "Results") {
+                DipAnalystCallout(analystLine)
+                analystShown = true
+            }
         }
+        if (!analystShown) DipAnalystCallout(analystLine)
         TextButton(
             onClick = onOpenSymbol,
             modifier = Modifier
@@ -894,12 +899,14 @@ private fun earningsPlainText(details: StockDetails?, nowMs: Long): String? {
 private fun analystPlainText(row: DipRow): String? {
     val details = row.details ?: return null
     val pieces = buildList {
+        val votes = analystVotesShort(details)
         details.analystRecommendation
             ?.trim()
             ?.takeIf { it.isNotBlank() }
             ?.replace("_", " ")
             ?.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-            ?.let { add(it) }
+            ?.let { add(votes?.let { voteText -> "$it ($voteText)" } ?: it) }
+        if (isEmpty()) votes?.let { add(it) }
         details.analystTargetMean?.let { target ->
             val upside = details.upsideToTargetPct(row.currentPrice)
                 ?.let { " (${formatSignedPercent(it)} from now)" }
@@ -908,6 +915,19 @@ private fun analystPlainText(row: DipRow): String? {
         }
     }
     return pieces.takeIf { it.isNotEmpty() }?.joinToString(". ")
+}
+
+private fun analystVotesShort(details: StockDetails): String? {
+    val votes = listOf(
+        "SB" to details.analystStrongBuyCount,
+        "B" to details.analystBuyCount,
+        "H" to details.analystHoldCount,
+        "S" to details.analystSellCount,
+        "SS" to details.analystStrongSellCount
+    ).mapNotNull { (label, count) ->
+        count?.takeIf { it > 0 }?.let { "$label $it" }
+    }
+    return votes.takeIf { it.isNotEmpty() }?.joinToString(", ")
 }
 
 private fun analystTone(details: StockDetails?): DipDetailTone = when (

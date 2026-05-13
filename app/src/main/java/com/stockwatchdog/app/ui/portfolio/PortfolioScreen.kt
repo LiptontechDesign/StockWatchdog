@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -149,38 +150,67 @@ private fun PortfolioSummaryCard(state: PortfolioUiState) {
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(
-                "Total portfolio",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(4.dp))
-
             val valueText = if (state.totalValue != null) {
                 formatPrice(state.totalValue)
             } else {
                 formatPrice(state.totalInvested)
             }
-            Text(
-                valueText,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-
-            if (state.totalPnl != null) {
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Column(Modifier.weight(1.15f)) {
                     Text(
-                        formatSignedChange(state.totalPnl),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = changeColor(state.totalPnl)
+                        "Total portfolio",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(Modifier.size(8.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "(${formatSignedPercent(state.totalPercentPnl)})",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = changeColor(state.totalPercentPnl)
+                        valueText,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (state.totalPnl != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                formatSignedChange(state.totalPnl),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = changeColor(state.totalPnl)
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                "(${formatSignedPercent(state.totalPercentPnl)})",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = changeColor(state.totalPercentPnl)
+                            )
+                        }
+                    }
+                }
+                Column(
+                    modifier = Modifier.weight(0.85f),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    SummaryMetric(
+                        label = "Invested",
+                        value = formatPrice(state.totalInvested),
+                        horizontalAlignment = Alignment.End
+                    )
+                    SummaryMetric(
+                        label = "Current",
+                        value = if (state.totalValue != null) formatPrice(state.totalValue) else "--",
+                        horizontalAlignment = Alignment.End
+                    )
+                    SummaryMetric(
+                        label = "Net return",
+                        value = state.totalPercentPnl?.let { formatSignedPercent(it) } ?: "--",
+                        color = state.totalPercentPnl?.let { changeColor(it) }
+                            ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                        horizontalAlignment = Alignment.End
                     )
                 }
             }
@@ -194,41 +224,8 @@ private fun PortfolioSummaryCard(state: PortfolioUiState) {
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Total invested",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        formatPrice(state.totalInvested),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                Column(
-                    Modifier.weight(1f),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    Text(
-                        "Current value",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        if (state.totalValue != null) formatPrice(state.totalValue)
-                        else "--",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-
             if (brokerBreakdowns.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(14.dp))
                 Text(
                     "Broker performance",
                     style = MaterialTheme.typography.labelSmall,
@@ -236,14 +233,12 @@ private fun PortfolioSummaryCard(state: PortfolioUiState) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(6.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    brokerBreakdowns.forEach { broker ->
-                        BrokerBreakdownRow(
-                            broker = broker,
-                            totalInvested = state.totalInvested
-                        )
-                    }
-                }
+                BrokerBreakdownGrid(
+                    brokers = brokerBreakdowns,
+                    totalInvested = state.totalInvested
+                )
+                Spacer(Modifier.height(8.dp))
+            } else {
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -252,6 +247,56 @@ private fun PortfolioSummaryCard(state: PortfolioUiState) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun SummaryMetric(
+    label: String,
+    value: String,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start
+) {
+    Column(horizontalAlignment = horizontalAlignment) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = color,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun BrokerBreakdownGrid(
+    brokers: List<BrokerBreakdown>,
+    totalInvested: Double
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        brokers.chunked(2).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                row.forEach { broker ->
+                    BrokerBreakdownRow(
+                        broker = broker,
+                        totalInvested = totalInvested,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (row.size == 1 && brokers.size > 1) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
         }
     }
 }
@@ -291,7 +336,8 @@ private fun PortfolioUiState.brokerBreakdowns(): List<BrokerBreakdown> =
 @Composable
 private fun BrokerBreakdownRow(
     broker: BrokerBreakdown,
-    totalInvested: Double
+    totalInvested: Double,
+    modifier: Modifier = Modifier
 ) {
     val share = if (totalInvested > 0.0) {
         (broker.invested / totalInvested).coerceIn(0.0, 1.0).toFloat()
@@ -300,52 +346,30 @@ private fun BrokerBreakdownRow(
     }
     val performanceColor = broker.percentPnl?.let { changeColor(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
+        modifier = modifier,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.50f),
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
     ) {
         Column(
-            modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
+            modifier = Modifier.padding(9.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        broker.name,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        "${broker.holdingsCount} holding${if (broker.holdingsCount != 1) "s" else ""} - ${"%.0f".format(share * 100f)}% invested",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        formatPrice(broker.currentValue ?: broker.invested),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1
-                    )
-                    Text(
-                        broker.percentPnl?.let { formatSignedPercent(it) } ?: "--",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = performanceColor,
-                        maxLines = 1
-                    )
-                }
-            }
+            Text(
+                broker.name,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${broker.holdingsCount} holding${if (broker.holdingsCount != 1) "s" else ""} - ${"%.0f".format(share * 100f)}% of invested",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -360,24 +384,58 @@ private fun BrokerBreakdownRow(
                         .background(performanceColor.copy(alpha = 0.80f))
                 )
             }
-            Row(Modifier.fillMaxWidth()) {
-                Text(
-                    "Invested ${formatPrice(broker.invested)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                BrokerMetric(
+                    label = "Invested",
+                    value = formatPrice(broker.invested),
                     modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    broker.pnl?.let { formatSignedChange(it) } ?: "Waiting for price",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
+                BrokerMetric(
+                    label = "Current",
+                    value = formatPrice(broker.currentValue ?: broker.invested),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                BrokerMetric(
+                    label = "Profit/loss",
+                    value = broker.pnl?.let { formatSignedChange(it) } ?: "--",
                     color = performanceColor,
-                    maxLines = 1
+                    modifier = Modifier.weight(1f),
+                )
+                BrokerMetric(
+                    label = "Net return",
+                    value = broker.percentPnl?.let { formatSignedPercent(it) } ?: "--",
+                    color = performanceColor,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun BrokerMetric(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurface
+) {
+    Column(modifier) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.ExtraBold,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

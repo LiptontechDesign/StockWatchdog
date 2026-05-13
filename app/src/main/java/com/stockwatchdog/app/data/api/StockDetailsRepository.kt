@@ -6,6 +6,7 @@ import com.stockwatchdog.app.data.api.models.EdgarCompanyFacts
 import com.stockwatchdog.app.data.api.models.EdgarConcept
 import com.stockwatchdog.app.data.api.models.EdgarFact
 import com.stockwatchdog.app.data.api.models.FinnhubRecommendationTrend
+import com.stockwatchdog.app.data.api.models.FmpAnalystRecommendation
 import com.stockwatchdog.app.data.api.models.FmpBalanceSheet
 import com.stockwatchdog.app.data.api.models.FmpCashFlowStatement
 import com.stockwatchdog.app.data.api.models.FmpEarningsEvent
@@ -125,10 +126,12 @@ class StockDetailsRepository(
             mergedDetails
         }
 
-        val withRecommendation = if (includeFmp) {
-            withEarnings.withDetailsFallback(fetchFinnhubRecommendation(s), s)
-        } else {
-            withEarnings
+        var withRecommendation = withEarnings
+        if (withRecommendation == null || !withRecommendation.hasAnalystVoteCounts()) {
+            withRecommendation = withRecommendation.withDetailsFallback(fetchFinnhubRecommendation(s), s)
+        }
+        if (withRecommendation == null || !withRecommendation.hasAnalystVoteCounts()) {
+            withRecommendation = withRecommendation.withDetailsFallback(fetchFmpRecommendation(s), s)
         }
 
         val fresh = withRecommendation
@@ -169,6 +172,7 @@ class StockDetailsRepository(
         const val YAHOO_SUMMARY_KEY = "YAHOO_QUOTE_SUMMARY"
         const val FINNHUB_EARNINGS_KEY = "FINNHUB_EARNINGS"
         const val FINNHUB_RECOMMENDATION_KEY = "FINNHUB_RECOMMENDATION"
+        const val FMP_RECOMMENDATION_KEY = "FMP_RECOMMENDATION"
         const val ALPHA_OVERVIEW_KEY = "ALPHA_OVERVIEW_DETAILS"
         val NAIROBI_ZONE: ZoneId = ZoneId.of("Africa/Nairobi")
         val FINNHUB_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
@@ -416,6 +420,32 @@ class StockDetailsRepository(
         }
     }
 
+    private suspend fun fetchFmpRecommendation(symbol: String): StockDetails? {
+        if (cooldown.isCoolingDown(FMP_RECOMMENDATION_KEY)) return null
+        val apiKey = settings.settings.first().fmpKey
+        if (apiKey.isBlank()) return null
+
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                fmp.analystRecommendations(symbol = symbol, apiKey = apiKey)
+                    .maxByOrNull { it.date.orEmpty() }
+                    ?.toDetails(symbol)
+            }.onSuccess {
+                cooldown.clear(FMP_RECOMMENDATION_KEY)
+            }.onFailure { failure ->
+                val code = (failure as? HttpException)?.code()
+                val msg = failure.message.orEmpty().lowercase()
+                when {
+                    code == 401 || code == 402 || code == 403 ->
+                        cooldown.trip(FMP_RECOMMENDATION_KEY, ProviderCooldown.PER_DAY_CAP_MS)
+                    code == 429 || "rate" in msg || "limit" in msg ->
+                        cooldown.trip(FMP_RECOMMENDATION_KEY, ProviderCooldown.PER_MINUTE_CAP_MS)
+                    else -> cooldown.trip(FMP_RECOMMENDATION_KEY, ProviderCooldown.PER_MINUTE_CAP_MS)
+                }
+            }.getOrNull()
+        }
+    }
+
     private suspend fun fetchAlphaOverviewIfNeeded(
         symbol: String,
         current: StockDetails?
@@ -518,21 +548,38 @@ class StockDetailsRepository(
     }
 
     private fun FinnhubRecommendationTrend.toDetails(symbol: String): StockDetails {
-        val total = listOf(strongBuy, buy, hold, sell, strongSell)
-            .mapNotNull { it?.takeIf { value -> value >= 0 } }
-            .sum()
-            .takeIf { it > 0 }
-            ?.toLong()
+        val total = analystVoteTotal(strongBuy, buy, hold, sell, strongSell)?.toLong()
         return StockDetails(
             symbol = this.symbol?.takeIf { it.isNotBlank() } ?: symbol,
             analystOpinionsCount = total,
-            analystRecommendation = consensusKeyFromRecommendationTrend(this),
+            analystRecommendation = consensusKeyFromCounts(strongBuy, buy, hold, sell, strongSell),
             analystStrongBuyCount = strongBuy?.takeIf { it >= 0 },
             analystBuyCount = buy?.takeIf { it >= 0 },
             analystHoldCount = hold?.takeIf { it >= 0 },
             analystSellCount = sell?.takeIf { it >= 0 },
             analystStrongSellCount = strongSell?.takeIf { it >= 0 },
             analystConsensusPeriod = period
+        )
+    }
+
+    private fun FmpAnalystRecommendation.toDetails(symbol: String): StockDetails {
+        val strongBuy = analystRatingsStrongBuy?.takeIf { it >= 0 }
+        val buy = analystRatingsBuy?.takeIf { it >= 0 }
+        val hold = analystRatingsHold?.takeIf { it >= 0 }
+        val sell = analystRatingsSell?.takeIf { it >= 0 }
+        val strongSell = analystRatingsStrongSell?.takeIf { it >= 0 }
+        val total = analystVoteTotal(strongBuy, buy, hold, sell, strongSell)?.toLong()
+
+        return StockDetails(
+            symbol = this.symbol?.takeIf { it.isNotBlank() } ?: symbol,
+            analystOpinionsCount = total,
+            analystRecommendation = consensusKeyFromCounts(strongBuy, buy, hold, sell, strongSell),
+            analystStrongBuyCount = strongBuy,
+            analystBuyCount = buy,
+            analystHoldCount = hold,
+            analystSellCount = sell,
+            analystStrongSellCount = strongSell,
+            analystConsensusPeriod = date
         )
     }
 
@@ -613,18 +660,45 @@ private val EDGAR_INSTANT_FRAME = Regex("""^CY\d{4}(Q[1-4])?I$""")
 private val EDGAR_PERIOD_FRAME = Regex("""^CY(\d{4})(Q[1-4])?$""")
 private val EDGAR_FILED_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
-private fun consensusKeyFromRecommendationTrend(trend: FinnhubRecommendationTrend): String? {
+private fun consensusKeyFromRecommendationTrend(trend: FinnhubRecommendationTrend): String? =
+    consensusKeyFromCounts(
+        strongBuy = trend.strongBuy,
+        buy = trend.buy,
+        hold = trend.hold,
+        sell = trend.sell,
+        strongSell = trend.strongSell
+    )
+
+private fun consensusKeyFromCounts(
+    strongBuy: Int?,
+    buy: Int?,
+    hold: Int?,
+    sell: Int?,
+    strongSell: Int?
+): String? {
     val buckets = listOf(
-        "strong_buy" to (trend.strongBuy ?: 0),
-        "buy" to (trend.buy ?: 0),
-        "hold" to (trend.hold ?: 0),
-        "sell" to (trend.sell ?: 0),
-        "strong_sell" to (trend.strongSell ?: 0)
+        "strong_buy" to (strongBuy ?: 0),
+        "buy" to (buy ?: 0),
+        "hold" to (hold ?: 0),
+        "sell" to (sell ?: 0),
+        "strong_sell" to (strongSell ?: 0)
     )
     val total = buckets.sumOf { it.second }
     if (total <= 0) return null
     return buckets.maxByOrNull { it.second }?.first
 }
+
+private fun analystVoteTotal(
+    strongBuy: Int?,
+    buy: Int?,
+    hold: Int?,
+    sell: Int?,
+    strongSell: Int?
+): Int? =
+    listOf(strongBuy, buy, hold, sell, strongSell)
+        .mapNotNull { it?.takeIf { value -> value >= 0 } }
+        .sum()
+        .takeIf { it > 0 }
 
 private fun buildFmpDetails(
     symbol: String,
