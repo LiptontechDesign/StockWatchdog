@@ -10,6 +10,7 @@ import com.stockwatchdog.app.data.db.entities.AlertEntity
 import com.stockwatchdog.app.data.db.entities.AlertEventEntity
 import com.stockwatchdog.app.data.db.entities.AlertType
 import com.stockwatchdog.app.domain.DataResult
+import com.stockwatchdog.app.domain.Quote
 import com.stockwatchdog.app.domain.SymbolMatch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -52,6 +53,10 @@ data class AlertsUiState(
     val dialogNotes: String = "",
     val dialogAutoDisable: Boolean = false,
     val dialogMarketHoursOnly: Boolean? = null,
+    val dialogCompanyName: String? = null,
+    val dialogCurrentPrice: Double? = null,
+    val dialogPercentChange: Double? = null,
+    val dialogCurrency: String? = null,
     /** Symbol search state for the FAB create flow. */
     val pickerOpen: Boolean = false,
     val pickerQuery: String = "",
@@ -165,7 +170,11 @@ class AlertsViewModel(
             dialogThreshold = "",
             dialogNotes = "",
             dialogAutoDisable = false,
-            dialogMarketHoursOnly = null
+            dialogMarketHoursOnly = null,
+            dialogCompanyName = null,
+            dialogCurrentPrice = null,
+            dialogPercentChange = null,
+            dialogCurrency = null
         )
     }
 
@@ -180,13 +189,25 @@ class AlertsViewModel(
                 dialogThreshold = formatThreshold(a),
                 dialogNotes = a.notes.orEmpty(),
                 dialogAutoDisable = a.autoDisableAfterFire,
-                dialogMarketHoursOnly = a.marketHoursOnly
+                dialogMarketHoursOnly = a.marketHoursOnly,
+                dialogCompanyName = null,
+                dialogCurrentPrice = null,
+                dialogPercentChange = null,
+                dialogCurrency = null
             )
         }
+        loadDialogQuote(a.symbol)
     }
 
     fun closeDialog() = _ui.update {
-        it.copy(dialogOpen = false, dialogEditing = null)
+        it.copy(
+            dialogOpen = false,
+            dialogEditing = null,
+            dialogCompanyName = null,
+            dialogCurrentPrice = null,
+            dialogPercentChange = null,
+            dialogCurrency = null
+        )
     }
 
     fun onDialogSymbolChange(v: String) =
@@ -276,18 +297,52 @@ class AlertsViewModel(
     }
 
     fun pickSymbol(symbol: String) {
+        val normalized = symbol.trim().uppercase()
+        val picked = _ui.value.pickerResults.firstOrNull {
+            it.symbol.equals(normalized, ignoreCase = true)
+        }
         _ui.update {
             it.copy(
                 pickerOpen = false,
                 dialogOpen = true,
                 dialogEditing = null,
-                dialogSymbol = symbol.trim().uppercase(),
+                dialogSymbol = normalized,
                 dialogType = AlertType.PRICE_ABOVE,
                 dialogThreshold = "",
                 dialogNotes = "",
                 dialogAutoDisable = false,
-                dialogMarketHoursOnly = null
+                dialogMarketHoursOnly = null,
+                dialogCompanyName = picked?.name,
+                dialogCurrentPrice = null,
+                dialogPercentChange = null,
+                dialogCurrency = null
             )
+        }
+        loadDialogQuote(normalized)
+    }
+
+    private fun loadDialogQuote(symbol: String) {
+        if (symbol.isBlank()) return
+        viewModelScope.launch {
+            when (val result = marketDataRepository.getQuote(symbol, forceRefresh = false)) {
+                is DataResult.Success -> applyDialogQuote(symbol, result.value)
+                is DataResult.Error -> Unit
+            }
+        }
+    }
+
+    private fun applyDialogQuote(symbol: String, quote: Quote) {
+        _ui.update {
+            if (!it.dialogOpen || !it.dialogSymbol.equals(symbol, ignoreCase = true)) {
+                it
+            } else {
+                it.copy(
+                    dialogCompanyName = quote.name ?: it.dialogCompanyName,
+                    dialogCurrentPrice = quote.price,
+                    dialogPercentChange = quote.percentChange,
+                    dialogCurrency = quote.currency
+                )
+            }
         }
     }
 

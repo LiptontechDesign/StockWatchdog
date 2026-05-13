@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 enum class ZoneStatus(val label: String) {
     ABOVE_ZONE("Above zone"),
@@ -429,7 +430,7 @@ class DipTrackerViewModel(
     fun dismissUndoSnackbar() = _ui.update { it.copy(undoDeleteEntity = null) }
 
     private fun trimTrailingZeros(d: Double): String {
-        val s = "%.4f".format(d)
+        val s = String.format(Locale.US, "%.2f", d)
         return s.trimEnd('0').trimEnd('.')
     }
 }

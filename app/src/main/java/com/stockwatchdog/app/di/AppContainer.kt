@@ -49,10 +49,13 @@ class AppContainer(private val context: Context) {
             } else {
                 original.header("User-Agent") ?: "StockWatchdog/1.0 Android"
             }
-            val request = chain.request().newBuilder()
+            val requestBuilder = chain.request().newBuilder()
                 .header("User-Agent", userAgent)
                 .header("Accept", "application/json")
-                .build()
+            if (host.endsWith("sec.gov")) {
+                requestBuilder.header("From", BuildConfig.SEC_CONTACT_EMAIL)
+            }
+            val request = requestBuilder.build()
             chain.proceed(request)
         }
         .apply {

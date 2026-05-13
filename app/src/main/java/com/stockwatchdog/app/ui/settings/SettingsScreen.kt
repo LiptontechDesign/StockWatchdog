@@ -47,6 +47,7 @@ import com.stockwatchdog.app.data.prefs.ApiProvider
 import com.stockwatchdog.app.data.prefs.ThemeMode
 import com.stockwatchdog.app.data.prefs.UserSettings
 import com.stockwatchdog.app.di.AppContainer
+import com.stockwatchdog.app.ui.components.CompactActionRow
 import com.stockwatchdog.app.util.MarketClock
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -497,20 +498,16 @@ private fun ApiKeySetting(
                 label = { Text(label) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
+                supportingText = { Text("Stored on this phone and hidden after saving.") },
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onApply,
-                    enabled = draftValue.isNotBlank()
-                ) {
-                    Text("Apply")
-                }
-                TextButton(onClick = onCancel) {
-                    Text("Cancel")
-                }
-            }
+            CompactActionRow(
+                primaryText = "Save key",
+                onPrimary = onApply,
+                enabled = draftValue.isNotBlank(),
+                onCancel = onCancel
+            )
         }
     } else {
         Row(
@@ -530,7 +527,7 @@ private fun ApiKeySetting(
                 )
             }
             TextButton(onClick = onOpenEditor) {
-                Text(if (hasSavedValue) "Replace" else "Paste key")
+                Text(if (hasSavedValue) "Replace key" else "Paste key")
             }
         }
     }
@@ -555,20 +552,16 @@ private fun FeeSetting(
                 label = { Text("Platform fee %") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                supportingText = { Text("Used when showing net return after fees.") },
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onApply,
-                    enabled = valid
-                ) {
-                    Text("Apply")
-                }
-                TextButton(onClick = onCancel) {
-                    Text("Cancel")
-                }
-            }
+            CompactActionRow(
+                primaryText = "Save fee",
+                onPrimary = onApply,
+                enabled = valid,
+                onCancel = onCancel
+            )
         }
     } else {
         Row(

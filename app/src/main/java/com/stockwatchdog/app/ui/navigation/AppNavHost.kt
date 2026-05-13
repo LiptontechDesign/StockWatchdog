@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Settings
@@ -20,7 +19,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -46,6 +44,7 @@ sealed class TopLevel(val route: String, val label: String) {
 object Routes {
     const val DETAIL = "detail"
     fun detail(symbol: String) = "$DETAIL/$symbol"
+    fun detailFinancials(symbol: String) = "$DETAIL/$symbol?tab=financials"
 }
 
 @Composable
@@ -91,12 +90,25 @@ fun AppNavHost(
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
-                                navController.navigate(item.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                                if (!selected) {
+                                    if (item == TopLevel.Watchlist) {
+                                        val returnedToWatchlist = navController.popBackStack(
+                                            TopLevel.Watchlist.route,
+                                            inclusive = false
+                                        )
+                                        if (!returnedToWatchlist) {
+                                            navController.navigate(TopLevel.Watchlist.route) {
+                                                launchSingleTop = true
+                                            }
+                                        }
+                                    } else {
+                                        navController.navigate(item.route) {
+                                            popUpTo(TopLevel.Watchlist.route) {
+                                                inclusive = false
+                                            }
+                                            launchSingleTop = true
+                                        }
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
                             },
                             icon = {
@@ -138,7 +150,8 @@ fun AppNavHost(
                 composable(TopLevel.Dip.route) {
                     DipScreen(
                         container = container,
-                        onOpenSymbol = { sym -> navController.navigate(Routes.detail(sym)) }
+                        onOpenSymbol = { sym -> navController.navigate(Routes.detail(sym)) },
+                        onOpenFinancials = { sym -> navController.navigate(Routes.detailFinancials(sym)) }
                     )
                 }
                 composable(TopLevel.Alerts.route) {
@@ -151,13 +164,25 @@ fun AppNavHost(
                     SettingsScreen(container = container)
                 }
                 composable(
-                    route = "${Routes.DETAIL}/{symbol}",
-                    arguments = listOf(navArgument("symbol") { type = NavType.StringType })
+                    route = "${Routes.DETAIL}/{symbol}?tab={tab}",
+                    arguments = listOf(
+                        navArgument("symbol") { type = NavType.StringType },
+                        navArgument("tab") {
+                            type = NavType.StringType
+                            defaultValue = ""
+                        }
+                    )
                 ) { entry ->
                     val symbol = entry.arguments?.getString("symbol").orEmpty()
+                    val initialTab = when (entry.arguments?.getString("tab")?.lowercase()) {
+                        "alerts" -> 1
+                        "financials" -> 2
+                        else -> 0
+                    }
                     TickerDetailScreen(
                         container = container,
                         symbol = symbol,
+                        initialTab = initialTab,
                         onBack = { navController.popBackStack() }
                     )
                 }

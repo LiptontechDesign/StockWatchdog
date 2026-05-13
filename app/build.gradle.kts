@@ -94,12 +94,17 @@ android {
         )
         // SEC asks automated EDGAR clients to identify the app with contact info.
         // Set SEC_USER_AGENT in local.properties or CI secrets with a real email.
+        val secContactEmail = localProp("SEC_CONTACT_EMAIL", "contact@liptontechdesign.com")
         buildConfigField(
             "String", "SEC_USER_AGENT",
             "\"${localProp(
                 "SEC_USER_AGENT",
-                "StockWatchdog/1.0 Android LiptontechDesign (https://github.com/LiptontechDesign/StockWatchdog)"
+                "StockWatchdog/1.0 $secContactEmail"
             )}\""
+        )
+        buildConfigField(
+            "String", "SEC_CONTACT_EMAIL",
+            "\"$secContactEmail\""
         )
     }
 

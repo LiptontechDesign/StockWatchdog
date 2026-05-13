@@ -64,6 +64,9 @@ import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.domain.PositionCalculator
 import com.stockwatchdog.app.domain.Quote
 import com.stockwatchdog.app.ui.components.FinancialResultBadge
+import com.stockwatchdog.app.ui.components.FormHeader
+import com.stockwatchdog.app.ui.components.FormSectionLabel
+import com.stockwatchdog.app.ui.components.SearchResultRow
 import com.stockwatchdog.app.ui.components.changeColor
 import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.components.formatSignedChange
@@ -397,17 +400,18 @@ private fun AddTickerSheet(
             .padding(16.dp)
             .heightIn(min = 200.dp, max = 520.dp)
     ) {
-        Text(
-            "Add ticker",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
+        FormHeader(
+            title = "Add ticker",
+            subtitle = "Add one stock or ETF to your watchlist."
         )
         Spacer(Modifier.height(12.dp))
+        FormSectionLabel("Stock")
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Symbol or company (e.g. AAPL, SPY)") },
+            label = { Text("Search symbol or company") },
+            placeholder = { Text("AAPL, SPY, Nvidia") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true
         )
@@ -416,37 +420,27 @@ private fun AddTickerSheet(
             if (searching) {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.size(8.dp))
-                Text("Searching…", style = MaterialTheme.typography.bodySmall)
+                Text("Searching...", style = MaterialTheme.typography.bodySmall)
             } else if (query.isNotBlank()) {
-                TextButton(onClick = onAddManual) {
-                    Text("Add \"${query.trim().uppercase()}\" directly")
+                TextButton(
+                    onClick = onAddManual,
+                    modifier = Modifier.heightIn(min = 44.dp)
+                ) {
+                    Text("Add ${query.trim().uppercase()} to watchlist")
                 }
             }
         }
         Spacer(Modifier.height(4.dp))
         LazyColumn(Modifier.fillMaxWidth()) {
             items(results, key = { it.symbol + (it.exchange ?: "") }) { m ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { onPick(m) }
-                        .padding(vertical = 10.dp)
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(m.symbol, fontWeight = FontWeight.Medium)
-                        val sub = listOfNotNull(m.name, m.exchange, m.type)
-                            .joinToString(" • ")
-                        if (sub.isNotBlank()) {
-                            Text(
-                                sub,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
-                            )
-                        }
+                SearchResultRow(
+                    symbol = m.symbol,
+                    subtitle = listOfNotNull(m.name, m.exchange, m.type).joinToString(" | "),
+                    onClick = { onPick(m) },
+                    trailing = {
+                        Icon(Icons.Default.Add, contentDescription = "Add ${m.symbol}")
                     }
-                    Icon(Icons.Default.Add, contentDescription = "Add")
-                }
+                )
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f),
                     thickness = 0.5.dp

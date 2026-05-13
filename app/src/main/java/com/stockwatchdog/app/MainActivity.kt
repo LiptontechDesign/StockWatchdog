@@ -54,12 +54,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun parseDeepLinkRoute(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_VIEW) return null
         val data = intent?.data ?: return null
         if (data.scheme != "stockwatchdog") return null
         return when (data.host) {
             "ticker" -> data.lastPathSegment
                 ?.takeIf { it.isNotBlank() }
-                ?.let { Routes.detail(it.uppercase()) }
+                ?.let {
+                    if (data.getQueryParameter("tab")?.lowercase() == "financials") {
+                        Routes.detailFinancials(it.uppercase())
+                    } else {
+                        Routes.detail(it.uppercase())
+                    }
+                }
             "watchlist" -> TopLevel.Watchlist.route
             "portfolio" -> TopLevel.Portfolio.route
             "dip" -> TopLevel.Dip.route

@@ -407,7 +407,7 @@ internal fun EmptyDipState(onAdd: () -> Unit) {
         )
         Text(
             "Add stocks you want to buy on a dip. You'll see live status, " +
-                "next earnings date, analyst targets and 52-week range — all in Kenya time.",
+                "next earnings date, analyst targets and 52-week range.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

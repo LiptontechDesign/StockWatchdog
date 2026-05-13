@@ -1,8 +1,11 @@
 package com.stockwatchdog.app.ui.dip
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +29,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShowChart
@@ -47,13 +53,13 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,6 +102,17 @@ private val BelowZoneColor = NegativeRed
 private val EarningsColor = Color(0xFF6C5CE7)
 private val MarketOpenColor = Color(0xFF2E7D32)
 private val MarketClosedColor = Color(0xFF8E8E93)
+private val RefPageBg = Color(0xFFF0EFF7)
+private val RefTextDark = Color(0xFF0D0B1E)
+private val RefNavy = Color(0xFF1E1852)
+private val RefNavyMid = Color(0xFF3D3894)
+private val RefBorder = Color(0xFFC8C5E8)
+private val RefChipBorder = Color(0xFFDDDAF5)
+private val RefSuccessBg = Color(0xFFC6EFD8)
+private val RefSuccessText = Color(0xFF0A4A28)
+private val RefNearBg = Color(0xFFFDE8C0)
+private val RefWarningText = Color(0xFF7A3D00)
+private val RefTrackBg = Color(0xFFDDDAF5)
 private val NairobiZone: ZoneId = ZoneId.of("Africa/Nairobi")
 private val ReleaseDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d")
 
@@ -113,7 +130,8 @@ private fun statusColor(status: ZoneStatus): Color = when (status) {
 @Composable
 fun DipScreen(
     container: AppContainer,
-    onOpenSymbol: (String) -> Unit
+    onOpenSymbol: (String) -> Unit,
+    onOpenFinancials: (String) -> Unit
 ) {
     val vm: DipTrackerViewModel = viewModel(
         factory = viewModelFactory {
@@ -153,37 +171,7 @@ fun DipScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Dip", fontWeight = FontWeight.SemiBold)
-                        if (state.rows.isNotEmpty()) {
-                            Text(
-                                "${state.rows.size} stock${if (state.rows.size == 1) "" else "s"} tracked",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { vm.openAddDialog() }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add stock")
-                    }
-                    IconButton(onClick = { vm.refresh() }) {
-                        if (state.isRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                        }
-                    }
-                }
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         LazyColumn(
@@ -191,10 +179,18 @@ fun DipScreen(
                 .fillMaxSize()
                 .padding(padding),
             contentPadding = PaddingValues(
-                start = 14.dp, end = 14.dp, top = 12.dp, bottom = 96.dp
+                start = 13.dp, end = 13.dp, top = 14.dp, bottom = 96.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
+            item {
+                DipHeader(
+                    trackedCount = state.rows.size,
+                    isRefreshing = state.isRefreshing,
+                    onAdd = { vm.openAddDialog() },
+                    onRefresh = { vm.refresh() }
+                )
+            }
             if (state.rows.isNotEmpty()) {
                 item { TrackerSummaryCard(state.rows) }
             }
@@ -217,6 +213,7 @@ fun DipScreen(
                     row = row,
                     nowMs = nowMs,
                     onClick = { onOpenSymbol(row.entity.symbol) },
+                    onOpenFinancials = { onOpenFinancials(row.entity.symbol) },
                     onEdit = { vm.openEditDialog(row.entity.id) },
                     onDelete = { vm.confirmDelete(row.entity.id) }
                 )
@@ -277,6 +274,72 @@ fun DipScreen(
 // ════════════════════════════════════════════════════════════════════════
 // Market Hours hero card
 // ════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun DipHeader(
+    trackedCount: Int,
+    isRefreshing: Boolean,
+    onAdd: () -> Unit,
+    onRefresh: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Dip",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                "$trackedCount stock${if (trackedCount == 1) "" else "s"} tracked",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            RefIconButton(onClick = onAdd) {
+                Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            RefIconButton(onClick = onRefresh) {
+                if (isRefreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RefIconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(9.dp))
+                .border(2.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(9.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            content()
+        }
+    }
+}
 
 @Composable
 private fun MarketHoursCard(nowMs: Long) {
@@ -394,27 +457,15 @@ private fun TrackerSummaryCard(rows: List<DipRow>) {
     val near = rows.count { it.status == ZoneStatus.NEAR_ZONE }
     val total = rows.size
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        Column(
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SummaryPill("$ready", "Ready", InBuyZoneColor, Modifier.weight(1f))
-                SummaryPill("$near", "Near", NearZoneColor, Modifier.weight(1f))
-                SummaryPill("$total", "Tracked", AboveZoneColor, Modifier.weight(1f))
-            }
-        }
+        SummaryPill("$ready", "Ready", RefSuccessBg, RefSuccessText, Modifier.weight(1f))
+        SummaryPill("$near", "Near", RefNearBg, RefWarningText, Modifier.weight(1f))
+        SummaryPill("$total", "Tracked", RefTrackBg, RefNavy, Modifier.weight(1f))
     }
 }
 
@@ -422,17 +473,28 @@ private fun TrackerSummaryCard(rows: List<DipRow>) {
 private fun SummaryPill(
     value: String,
     label: String,
-    color: Color,
+    fill: Color,
+    textColor: Color,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
-            .background(color.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .background(fill, RoundedCornerShape(10.dp))
+            .padding(horizontal = 6.dp, vertical = 9.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = color)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.ExtraBold,
+            color = textColor
+        )
+        Text(
+            label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.ExtraBold,
+            color = textColor
+        )
     }
 }
 
@@ -445,54 +507,59 @@ private fun DipRowCard(
     row: DipRow,
     nowMs: Long,
     onClick: () -> Unit,
+    onOpenFinancials: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var detailsExpanded by rememberSaveable(row.entity.symbol) { mutableStateOf(false) }
     val statusCol by animateColorAsState(
         targetValue = statusColor(row.status),
         label = "statusColor"
     )
+    val badgeColors = refBadgeColors(row.status)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(14.dp)
     ) {
         Column(
-            Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.padding(start = 13.dp, end = 8.dp, top = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // ── Header: symbol, name, status, price ──────────────────
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier
-                        .size(11.dp)
+                        .size(9.dp)
                         .clip(CircleShape)
                         .background(statusCol)
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             row.entity.symbol,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(6.dp))
                         if (row.status != ZoneStatus.NO_DATA) {
-                            StatusBadge(row.status, statusCol)
+                            RefStatusBadge(row.status, badgeColors.first, badgeColors.second)
                         }
                     }
                     val sub = row.name ?: row.details?.symbol
                     if (!sub.isNullOrBlank() && sub != row.entity.symbol) {
                         Text(
                             sub,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -500,13 +567,482 @@ private fun DipRowCard(
                     }
                 }
                 Column(
-                    modifier = Modifier.widthIn(min = 84.dp),
+                    modifier = Modifier.widthIn(min = 76.dp),
                     horizontalAlignment = Alignment.End
                 ) {
                     Text(
                         formatPrice(row.currentPrice),
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
+                    )
+                    row.percentChange?.let { pct ->
+                        Text(
+                            formatSignedPercent(pct),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = changeColor(pct),
+                            maxLines = 1
+                        )
+                    }
+                }
+                RowOverflow(onEdit = onEdit, onDelete = onDelete)
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                DipInfoChip("Earnings", compactEarningsChip(row.details, nowMs), Modifier.weight(1f))
+                DipInfoChip("Buy zone", compactBuyZone(row), Modifier.weight(1f))
+                DipInfoChip(
+                    "Need drop",
+                    needDropText(row),
+                    Modifier.weight(1f),
+                    warning = row.currentPrice?.let { it > row.entity.buyZoneHigh } == true
+                )
+            }
+
+            MoreDetailToggle(
+                expanded = detailsExpanded,
+                onToggle = { detailsExpanded = !detailsExpanded }
+            )
+
+            AnimatedVisibility(visible = detailsExpanded) {
+                DipExpandedDetails(
+                    row = row,
+                    nowMs = nowMs,
+                    onOpenSymbol = onOpenFinancials
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoreDetailToggle(
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .padding(end = 5.dp)
+            .clickable(onClick = onToggle),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            if (expanded) "LESS DETAIL" else "MORE DETAIL",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(Modifier.width(2.dp))
+        Icon(
+            if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp)
+        )
+    }
+}
+
+@Composable
+private fun DipExpandedDetails(
+    row: DipRow,
+    nowMs: Long,
+    onOpenSymbol: () -> Unit
+) {
+    val lines = buildDipDetailLines(row, nowMs)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(end = 5.dp, bottom = 12.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f), RoundedCornerShape(10.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        lines.forEach { line ->
+            DipDetailLine(line)
+        }
+        TextButton(
+            onClick = onOpenSymbol,
+            modifier = Modifier
+                .align(Alignment.End)
+                .heightIn(min = 44.dp)
+        ) {
+            Text(
+                "OPEN FULL FINANCIALS",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun DipDetailLine(line: DipDetailText) {
+    val color = when (line.tone) {
+        DipDetailTone.GOOD -> RefSuccessText
+        DipDetailTone.WARNING -> RefWarningText
+        DipDetailTone.BAD -> Color(0xFF7A1A1A)
+        DipDetailTone.NEUTRAL -> RefNavy
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            Modifier
+                .padding(top = 6.dp)
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                line.label.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                line.text,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+private data class DipDetailText(
+    val label: String,
+    val text: String,
+    val tone: DipDetailTone
+)
+
+private enum class DipDetailTone { GOOD, WARNING, BAD, NEUTRAL }
+
+private fun buildDipDetailLines(row: DipRow, nowMs: Long): List<DipDetailText> = buildList {
+    add(
+        DipDetailText(
+            label = "Status",
+            text = statusPlainText(row),
+            tone = when (row.status) {
+                ZoneStatus.STRONG_BUY,
+                ZoneStatus.IN_BUY_ZONE -> DipDetailTone.GOOD
+                ZoneStatus.NEAR_ZONE,
+                ZoneStatus.ABOVE_ZONE -> DipDetailTone.WARNING
+                ZoneStatus.BELOW_ZONE -> DipDetailTone.BAD
+                ZoneStatus.NO_DATA -> DipDetailTone.NEUTRAL
+            }
+        )
+    )
+    add(
+        DipDetailText(
+            label = "Buy plan",
+            text = buyPlanPlainText(row),
+            tone = DipDetailTone.NEUTRAL
+        )
+    )
+    add(
+        DipDetailText(
+            label = "Move needed",
+            text = moveNeededPlainText(row),
+            tone = when {
+                row.currentPrice == null -> DipDetailTone.NEUTRAL
+                row.currentPrice in row.entity.buyZoneLow..row.entity.buyZoneHigh -> DipDetailTone.GOOD
+                row.currentPrice > row.entity.buyZoneHigh -> DipDetailTone.WARNING
+                else -> DipDetailTone.BAD
+            }
+        )
+    )
+    earningsPlainText(row.details, nowMs)?.let {
+        add(DipDetailText("Results", it, DipDetailTone.WARNING))
+    }
+    analystPlainText(row)?.let {
+        add(DipDetailText("Analyst view", it, analystTone(row.details)))
+    }
+    trendPlainText(row)?.let {
+        add(DipDetailText("Trend", it, DipDetailTone.NEUTRAL))
+    }
+    row.entity.notes?.takeIf { it.isNotBlank() }?.let {
+        add(DipDetailText("Your note", it, DipDetailTone.NEUTRAL))
+    }
+}
+
+private fun statusPlainText(row: DipRow): String = when (row.status) {
+    ZoneStatus.STRONG_BUY ->
+        "Price is at your strongest buy level. This is the deeper discount level you chose."
+    ZoneStatus.IN_BUY_ZONE ->
+        "Price is inside your planned buy range, so this ticker is ready to review."
+    ZoneStatus.NEAR_ZONE ->
+        "Price is close to your buy range. Keep watching; it is not quite there yet."
+    ZoneStatus.ABOVE_ZONE ->
+        "Price is still above your buy range. Wait for the drop you planned before buying."
+    ZoneStatus.BELOW_ZONE ->
+        "Price is already below your zone. Check news and financials before buying because the fall may have a reason."
+    ZoneStatus.NO_DATA ->
+        "No fresh price is available yet, so the app cannot judge the buy zone."
+}
+
+private fun buyPlanPlainText(row: DipRow): String {
+    val zone = "${formatCompactDollar(row.entity.buyZoneLow)} to ${formatCompactDollar(row.entity.buyZoneHigh)}"
+    val strong = row.entity.strongBuyBelow?.let { " Strong buy below ${formatCompactDollar(it)}." }.orEmpty()
+    return "Your normal buy zone is $zone.$strong"
+}
+
+private fun moveNeededPlainText(row: DipRow): String {
+    val current = row.currentPrice ?: return "Waiting for a fresh price before calculating the needed move."
+    return when {
+        current in row.entity.buyZoneLow..row.entity.buyZoneHigh ->
+            "Already inside your buy zone."
+        current > row.entity.buyZoneHigh -> {
+            val pct = (row.entity.buyZoneHigh / current - 1.0) * 100.0
+            "Needs about ${"%.1f".format(kotlin.math.abs(pct))}% drop to enter your buy zone."
+        }
+        else ->
+            "Already below your buy zone. Treat this as a caution signal and check why it dropped."
+    }
+}
+
+private fun earningsPlainText(details: StockDetails?, nowMs: Long): String? {
+    val epoch = details?.nextEarningsEpochSeconds ?: return null
+    val releaseDate = Instant.ofEpochSecond(epoch).atZone(NairobiZone).toLocalDate()
+    val nowDate = Instant.ofEpochMilli(nowMs).atZone(NairobiZone).toLocalDate()
+    val days = ChronoUnit.DAYS.between(nowDate, releaseDate)
+    val dateText = releaseDate.format(ReleaseDateFormat)
+    val quarter = details.nextEarningsQuarterLabel
+        ?.takeIf { it.isNotBlank() }
+        ?.let { " (${compactQuarterLabel(it)})" }
+        .orEmpty()
+    val whenText = when {
+        days < 0 -> "reported recently"
+        days == 0L -> "reports today"
+        days == 1L -> "reports tomorrow"
+        else -> "reports in ${days}d"
+    }
+    return "Next results $dateText$quarter, $whenText. Fresh numbers can change the buy case."
+}
+
+private fun analystPlainText(row: DipRow): String? {
+    val details = row.details ?: return null
+    val pieces = buildList {
+        details.analystRecommendation
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.replace("_", " ")
+            ?.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            ?.let { add(it) }
+        details.analystTargetMean?.let { target ->
+            val upside = details.upsideToTargetPct(row.currentPrice)
+                ?.let { " (${formatSignedPercent(it)} from now)" }
+                .orEmpty()
+            add("target ${formatPrice(target)}$upside")
+        }
+    }
+    return pieces.takeIf { it.isNotEmpty() }?.joinToString(". ")
+}
+
+private fun analystTone(details: StockDetails?): DipDetailTone = when (
+    details?.analystRecommendation?.trim()?.lowercase()?.replace("-", "_")?.replace(" ", "_")
+) {
+    "strong_buy", "buy" -> DipDetailTone.GOOD
+    "sell", "strong_sell" -> DipDetailTone.BAD
+    "hold" -> DipDetailTone.WARNING
+    else -> DipDetailTone.NEUTRAL
+}
+
+private fun trendPlainText(row: DipRow): String? {
+    val details = row.details ?: return null
+    val trend = details.pctVs200dMa(row.currentPrice)?.let { pct ->
+        val side = if (pct >= 0) "above" else "below"
+        "Price is ${formatPercentOne(kotlin.math.abs(pct))} $side the 200-day average."
+    }
+    val range = details.positionInRange(row.currentPrice)?.let { position ->
+        "It sits near ${"%.0f".format(position * 100f)}% of its 52-week range."
+    }
+    val volume = details.volumeSpikeRatio()?.takeIf { it >= 1.3 }?.let {
+        "Volume is ${"%.1f".format(it)}x usual, so the move has extra attention."
+    }
+    return listOfNotNull(trend, range, volume).takeIf { it.isNotEmpty() }?.joinToString(" ")
+}
+
+@Composable
+private fun RefStatusBadge(status: ZoneStatus, fill: Color, text: Color) {
+    Text(
+        status.label,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.ExtraBold,
+        color = text,
+        modifier = Modifier
+            .background(fill, RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        maxLines = 1
+    )
+}
+
+@Composable
+private fun DipInfoChip(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    warning: Boolean = false
+) {
+    val fill = if (warning) {
+        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+    }
+    val labelColor = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    val valueColor = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+    Column(
+        modifier = modifier
+            .background(fill, RoundedCornerShape(7.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(7.dp))
+            .padding(horizontal = 6.dp, vertical = 5.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        Text(
+            label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.ExtraBold,
+            color = labelColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = valueColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun refBadgeColors(status: ZoneStatus): Pair<Color, Color> = when (status) {
+    ZoneStatus.NEAR_ZONE -> Color(0xFFFFF0C0) to Color(0xFF5A3000)
+    ZoneStatus.IN_BUY_ZONE,
+    ZoneStatus.STRONG_BUY -> RefSuccessBg to RefSuccessText
+    ZoneStatus.ABOVE_ZONE -> RefNearBg to RefWarningText
+    ZoneStatus.BELOW_ZONE -> Color(0xFFFCE4E4) to Color(0xFF7A1A1A)
+    ZoneStatus.NO_DATA -> RefTrackBg to RefNavy
+}
+
+private fun compactEarningsChip(details: StockDetails?, nowMs: Long): String {
+    val epoch = details?.nextEarningsEpochSeconds ?: return "--"
+    val date = Instant.ofEpochSecond(epoch).atZone(NairobiZone).toLocalDate()
+    val now = Instant.ofEpochMilli(nowMs).atZone(NairobiZone).toLocalDate()
+    val days = ChronoUnit.DAYS.between(now, date)
+    return if (days in 0..9) "${days}d" else date.format(ReleaseDateFormat)
+}
+
+private fun compactBuyZone(row: DipRow): String =
+    "${formatCompactDollar(row.entity.buyZoneLow)}-${formatCompactDollar(row.entity.buyZoneHigh)}"
+
+private fun needDropText(row: DipRow): String {
+    val current = row.currentPrice ?: return "--"
+    return when {
+        current in row.entity.buyZoneLow..row.entity.buyZoneHigh -> "Ready"
+        current > row.entity.buyZoneHigh -> {
+            val pct = (row.entity.buyZoneHigh / current - 1.0) * 100.0
+            "${"%.0f".format(pct)}%"
+        }
+        else -> "Below"
+    }
+}
+
+private fun formatCompactDollar(value: Double): String =
+    if (value >= 10) "\$${"%.0f".format(value)}" else "\$${"%.2f".format(value)}"
+
+private fun formatPercentOne(value: Double): String = "%.1f%%".format(value)
+
+@Composable
+private fun OldDipRowCard(
+    row: DipRow,
+    nowMs: Long,
+    onClick: () -> Unit,
+    onOpenFinancials: () -> Unit = onClick,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val statusCol by animateColorAsState(
+        targetValue = statusColor(row.status),
+        label = "statusColor"
+    )
+    val badgeColors = refBadgeColors(row.status)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(2.dp, RefBorder),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(
+            Modifier.padding(start = 13.dp, end = 8.dp, top = 11.dp, bottom = 0.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // ── Header: symbol, name, status, price ──────────────────
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(statusCol)
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            row.entity.symbol,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = RefTextDark,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        if (row.status != ZoneStatus.NO_DATA) {
+                            RefStatusBadge(row.status, badgeColors.first, badgeColors.second)
+                        }
+                    }
+                    val sub = row.name ?: row.details?.symbol
+                    if (!sub.isNullOrBlank() && sub != row.entity.symbol) {
+                        Text(
+                            sub,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = RefNavyMid,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier.widthIn(min = 76.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    Text(
+                        formatPrice(row.currentPrice),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = RefTextDark,
                         maxLines = 1
                     )
                     val pct = row.percentChange
@@ -514,6 +1050,7 @@ private fun DipRowCard(
                         Text(
                             formatSignedPercent(pct),
                             style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
                             color = changeColor(pct),
                             maxLines = 1
                         )
@@ -523,22 +1060,13 @@ private fun DipRowCard(
             }
 
             // ── 52-week range visualisation ──────────────────────────
-            if (row.details != null) {
-                FiftyTwoWeekRangeBar(
-                    details = row.details,
-                    currentPrice = row.currentPrice,
-                    statusColor = statusCol
-                )
-            }
+            DipExpandedDetails(row = row, nowMs = nowMs, onOpenSymbol = onOpenFinancials)
 
             // ── Buy zone bar (existing pattern, simplified) ──────────
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                DipReleaseDateLine(row.details, nowMs)
-                BuyZoneBar(row = row, statusColor = statusCol)
-            }
+            Spacer(Modifier.height(0.dp))
 
             // ── Metric chips grid (2 rows of 2) ──────────────────────
-            MetricsGrid(row = row)
+            Spacer(Modifier.height(0.dp))
 
             // ── Notes ───────────────────────────────────────────────
             row.entity.notes?.takeIf { it.isNotBlank() }?.let { note ->

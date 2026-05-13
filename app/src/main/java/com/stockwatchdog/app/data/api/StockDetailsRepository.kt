@@ -103,11 +103,7 @@ class StockDetailsRepository(
         }
 
         val fmpDetails = if (includeFmp) fetchFmpDetails(s) else null
-        val edgarDetails = if (includeFmp && (fmpDetails == null || fmpDetails.needsFundamentalFallback())) {
-            fetchEdgarDetails(s)
-        } else {
-            null
-        }
+        val edgarDetails = if (includeFmp) fetchEdgarDetails(s) else null
 
         val yahooDetails = if (cooldown.isCoolingDown(YAHOO_SUMMARY_KEY)) {
             cachedOrNull(s)
@@ -115,8 +111,8 @@ class StockDetailsRepository(
             fetchYahooDetails(s) ?: cachedOrNull(s)
         }
 
-        val mergedDetails = fmpDetails
-            .withDetailsFallback(edgarDetails, s)
+        val mergedDetails = edgarDetails
+            .withDetailsFallback(fmpDetails, s)
             .withDetailsFallback(yahooDetails, s)
 
         val withEarnings = if (
@@ -225,9 +221,9 @@ class StockDetailsRepository(
                     code == 401 -> {
                         cooldown.trip(FMP_DETAILS_KEY, ProviderCooldown.PER_DAY_CAP_MS)
                     }
-                    code == 403 -> {
-                        // Some micro-cap or premium endpoints are restricted on the free plan.
-                        // Keep FMP available for the next symbol and let Yahoo/Alpha fill this one.
+                    code == 402 || code == 403 -> {
+                        // Some tickers/endpoints are restricted on the free plan.
+                        // Keep FMP available for the next symbol and let Yahoo/SEC/Alpha fill this one.
                     }
                     else -> cooldown.trip(FMP_DETAILS_KEY, ProviderCooldown.PER_MINUTE_CAP_MS)
                 }

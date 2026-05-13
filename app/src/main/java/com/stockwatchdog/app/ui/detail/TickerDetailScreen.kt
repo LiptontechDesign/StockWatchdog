@@ -2,6 +2,7 @@ package com.stockwatchdog.app.ui.detail
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,6 +67,7 @@ import com.stockwatchdog.app.data.db.entities.PositionLotEntity
 import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.domain.ChartRange
 import com.stockwatchdog.app.domain.PositionCalculator
+import com.stockwatchdog.app.ui.alerts.AlertEditDialog
 import com.stockwatchdog.app.ui.components.PriceLineChart
 import com.stockwatchdog.app.ui.components.changeColor
 import com.stockwatchdog.app.ui.components.formatPrice
@@ -80,6 +83,7 @@ import java.time.format.DateTimeFormatter
 fun TickerDetailScreen(
     container: AppContainer,
     symbol: String,
+    initialTab: Int = 0,
     onBack: () -> Unit
 ) {
     val vm: TickerDetailViewModel = viewModel(
@@ -143,8 +147,10 @@ fun TickerDetailScreen(
             )
         }
     ) { padding ->
-        var selectedTab by rememberSaveable { mutableIntStateOf(0) }
         val tabTitles = listOf("Position", "Alerts", "Financials")
+        var selectedTab by rememberSaveable(symbol, initialTab) {
+            mutableIntStateOf(initialTab.coerceIn(tabTitles.indices))
+        }
 
         Column(
             Modifier
@@ -208,13 +214,26 @@ fun TickerDetailScreen(
     }
 
     if (state.createAlertOpen) {
-        CreateAlertDialog(
+        AlertEditDialog(
+            isEditing = false,
+            symbolLocked = true,
+            symbol = state.symbol,
             type = state.newAlertType,
             threshold = state.newAlertThreshold,
+            notes = state.newAlertNotes,
+            autoDisable = state.newAlertAutoDisable,
+            marketHoursOnly = state.newAlertMarketHoursOnly,
             hasEntryPrice = state.avgEntryPrice != null,
-            platformFeePercent = state.platformFeePercent,
+            companyName = state.quote?.name,
+            currentPrice = state.quote?.price,
+            percentChange = state.quote?.percentChange,
+            currency = state.quote?.currency,
+            onSymbolChange = { },
             onTypeChange = vm::onAlertTypeChange,
             onThresholdChange = vm::onAlertThresholdChange,
+            onNotesChange = vm::onAlertNotesChange,
+            onAutoDisableChange = vm::onAlertAutoDisableChange,
+            onMarketHoursOnlyChange = vm::onAlertMarketHoursOnlyChange,
             onSave = { vm.saveAlert() },
             onDismiss = { vm.closeCreateAlert() }
         )
@@ -1363,18 +1382,20 @@ private fun EditPositionDialog(
                 OutlinedTextField(
                     value = entryPriceDraft,
                     onValueChange = onEntryChange,
-                    label = { Text("Entry point") },
+                    label = { Text("Entry price per share") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    supportingText = { Text("The price you paid for one share.") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = amountInvestedDraft,
                     onValueChange = onAmountChange,
-                    label = { Text("Amount invested") },
+                    label = { Text("Total amount invested") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    supportingText = { Text("Your total cash put into this entry.") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
@@ -1410,7 +1431,7 @@ private fun EditPositionDialog(
             TextButton(
                 onClick = onSave,
                 enabled = entryOk && amountOk
-            ) { Text("Save") }
+            ) { Text(if (isEditing) "Save position" else "Add position") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
@@ -1433,7 +1454,10 @@ private fun TpSlShortcuts(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
             OutlinedButton(onClick = { onTakeProfit(10.0) }) { Text("TP +10%") }
             OutlinedButton(onClick = { onTakeProfit(20.0) }) { Text("TP +20%") }
             OutlinedButton(onClick = { onStopLoss(5.0) }) { Text("SL -5%") }
@@ -1482,41 +1506,46 @@ private fun CreateAlertDialog(
         title = { Text("New alert") },
         text = {
             Column {
-                Text("Type", style = MaterialTheme.typography.labelMedium)
+                Text("Trigger", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
-                Row {
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     FilterChip(
                         selected = type == AlertType.PRICE_ABOVE,
                         onClick = { onTypeChange(AlertType.PRICE_ABOVE) },
-                        label = { Text("Above") }
+                        label = { Text("Price above") },
+                        modifier = Modifier.heightIn(min = 44.dp)
                     )
                     Spacer(Modifier.size(6.dp))
                     FilterChip(
                         selected = type == AlertType.PRICE_BELOW,
                         onClick = { onTypeChange(AlertType.PRICE_BELOW) },
-                        label = { Text("Below") }
+                        label = { Text("Price below") },
+                        modifier = Modifier.heightIn(min = 44.dp)
                     )
                     Spacer(Modifier.size(6.dp))
                     FilterChip(
                         selected = type == AlertType.PERCENT_CHANGE_DAY,
                         onClick = { onTypeChange(AlertType.PERCENT_CHANGE_DAY) },
-                        label = { Text("% day") }
+                        label = { Text("% day") },
+                        modifier = Modifier.heightIn(min = 44.dp)
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                Row {
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     FilterChip(
                         selected = type == AlertType.PERCENT_ABOVE_ENTRY,
                         onClick = { onTypeChange(AlertType.PERCENT_ABOVE_ENTRY) },
                         enabled = hasEntryPrice,
-                        label = { Text(if (platformFeePercent > 0) "Net gain vs entry" else "Gain vs entry") }
+                        label = { Text(if (platformFeePercent > 0) "Net gain vs entry" else "Gain vs entry") },
+                        modifier = Modifier.heightIn(min = 44.dp)
                     )
                     Spacer(Modifier.size(6.dp))
                     FilterChip(
                         selected = type == AlertType.PERCENT_BELOW_ENTRY,
                         onClick = { onTypeChange(AlertType.PERCENT_BELOW_ENTRY) },
                         enabled = hasEntryPrice,
-                        label = { Text(if (platformFeePercent > 0) "Net loss vs entry" else "Loss vs entry") }
+                        label = { Text(if (platformFeePercent > 0) "Net loss vs entry" else "Loss vs entry") },
+                        modifier = Modifier.heightIn(min = 44.dp)
                     )
                 }
                 if (!hasEntryPrice) {
@@ -1556,6 +1585,7 @@ private fun CreateAlertDialog(
                             }
                         )
                     },
+                    modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
@@ -1576,7 +1606,7 @@ private fun CreateAlertDialog(
             TextButton(
                 onClick = onSave,
                 enabled = thresholdValid && (!isEntryBased || hasEntryPrice)
-            ) { Text("Save") }
+            ) { Text("Create alert") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

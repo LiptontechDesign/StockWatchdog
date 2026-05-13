@@ -30,3 +30,8 @@ keystore/
 
 # Downloaded APK artifacts from CI runs (kept locally only)
 artifacts/
+apk-download/
+*.apk
+
+# Local Gradle distribution used when the wrapper executable is unavailable.
+.gradle-local/

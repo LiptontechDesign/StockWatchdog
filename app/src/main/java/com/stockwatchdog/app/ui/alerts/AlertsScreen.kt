@@ -42,12 +42,13 @@ import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -173,14 +174,7 @@ fun AlertsScreen(
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { vm.openPicker() },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("New alert") }
-            )
-        }
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
 
@@ -203,6 +197,14 @@ fun AlertsScreen(
             }
 
             // ── Tabs ───────────────────────────────────────────────────
+            if (selectedTab == 0) {
+                AlertsActionHeader(
+                    activeCount = state.rows.count { it.entity.enabled },
+                    totalCount = state.rows.size,
+                    onCreate = { vm.openPicker() }
+                )
+            }
+
             TabRow(selectedTabIndex = selectedTab) {
                 Tab(
                     selected = selectedTab == 0,
@@ -259,6 +261,10 @@ fun AlertsScreen(
             notes = state.dialogNotes,
             autoDisable = state.dialogAutoDisable,
             marketHoursOnly = state.dialogMarketHoursOnly,
+            companyName = state.dialogCompanyName,
+            currentPrice = state.dialogCurrentPrice,
+            percentChange = state.dialogPercentChange,
+            currency = state.dialogCurrency,
             // Per-symbol entry-price availability would need a lot lookup;
             // entry-relative chips are still shown but simply require a
             // position to fire. Keep the UI permissive here.
@@ -297,6 +303,57 @@ fun AlertsScreen(
 // ════════════════════════════════════════════════════════════════════════
 
 @Composable
+private fun AlertsActionHeader(
+    activeCount: Int,
+    totalCount: Int,
+    onCreate: () -> Unit
+) {
+    val pausedCount = (totalCount - activeCount).coerceAtLeast(0)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Alert center",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                if (totalCount == 0) {
+                    "Create price, results, target, volume, and trend alerts."
+                } else {
+                    "$activeCount active · $pausedCount paused"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Button(
+            onClick = onCreate,
+            modifier = Modifier.height(44.dp),
+            shape = RoundedCornerShape(8.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ),
+            contentPadding = PaddingValues(horizontal = 14.dp)
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("New alert", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
 private fun ActiveTab(
     rows: List<AlertRow>,
     onClickRow: (Long) -> Unit,
@@ -314,7 +371,7 @@ private fun ActiveTab(
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 110.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(rows, key = { it.entity.id }) { row ->
@@ -707,7 +764,7 @@ private fun EmptyAlertsState(onAdd: () -> Unit) {
         Spacer(Modifier.height(6.dp))
         Text(
             "Get pinged on price moves, earnings, 52-week breakouts, " +
-                "MA200 crosses and more \u2014 all in Kenya time.",
+                "MA200 crosses and more.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

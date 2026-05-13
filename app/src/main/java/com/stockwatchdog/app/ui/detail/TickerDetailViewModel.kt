@@ -48,6 +48,9 @@ data class DetailUiState(
     val createAlertOpen: Boolean = false,
     val newAlertType: AlertType = AlertType.PRICE_ABOVE,
     val newAlertThreshold: String = "",
+    val newAlertNotes: String = "",
+    val newAlertAutoDisable: Boolean = false,
+    val newAlertMarketHoursOnly: Boolean? = null,
     /** Add/edit lot dialog state. `editingLotId == null` means adding a new lot. */
     val lotDialogOpen: Boolean = false,
     val lotDialogEditingId: Long? = null,
@@ -178,16 +181,34 @@ class TickerDetailViewModel(
         it.copy(
             createAlertOpen = true,
             newAlertType = AlertType.PRICE_ABOVE,
-            newAlertThreshold = it.quote?.price?.let { p -> "%.2f".format(p) } ?: ""
+            newAlertThreshold = it.quote?.price?.let { p -> "%.2f".format(p) } ?: "",
+            newAlertNotes = "",
+            newAlertAutoDisable = false,
+            newAlertMarketHoursOnly = null
         )
     }
-    fun closeCreateAlert() = _ui.update { it.copy(createAlertOpen = false) }
-    fun onAlertTypeChange(t: AlertType) = _ui.update { it.copy(newAlertType = t) }
+    fun closeCreateAlert() = _ui.update {
+        it.copy(
+            createAlertOpen = false,
+            newAlertNotes = "",
+            newAlertAutoDisable = false,
+            newAlertMarketHoursOnly = null
+        )
+    }
+    fun onAlertTypeChange(t: AlertType) = _ui.update {
+        it.copy(
+            newAlertType = t,
+            newAlertThreshold = defaultThresholdFor(t, it.quote?.price)
+        )
+    }
     fun onAlertThresholdChange(v: String) = _ui.update { it.copy(newAlertThreshold = v) }
+    fun onAlertNotesChange(v: String) = _ui.update { it.copy(newAlertNotes = v) }
+    fun onAlertAutoDisableChange(v: Boolean) = _ui.update { it.copy(newAlertAutoDisable = v) }
+    fun onAlertMarketHoursOnlyChange(v: Boolean?) = _ui.update { it.copy(newAlertMarketHoursOnly = v) }
 
     fun saveAlert() {
         val s = _ui.value
-        val threshold = s.newAlertThreshold.replace(",", ".").toDoubleOrNull() ?: return
+        val threshold = parseAlertThreshold(s.newAlertType, s.newAlertThreshold) ?: return
         viewModelScope.launch {
             val initialState = _ui.value.quote?.let { q ->
                 val entry = _ui.value.avgEntryPrice
@@ -234,10 +255,21 @@ class TickerDetailViewModel(
                     type = s.newAlertType,
                     threshold = threshold,
                     enabled = true,
-                    lastCrossingState = initialState
+                    lastCrossingState = initialState,
+                    notes = s.newAlertNotes.trim().ifBlank { null },
+                    autoDisableAfterFire = s.newAlertAutoDisable,
+                    marketHoursOnly = s.newAlertMarketHoursOnly
                 )
             )
-            _ui.update { it.copy(createAlertOpen = false, newAlertThreshold = "") }
+            _ui.update {
+                it.copy(
+                    createAlertOpen = false,
+                    newAlertThreshold = "",
+                    newAlertNotes = "",
+                    newAlertAutoDisable = false,
+                    newAlertMarketHoursOnly = null
+                )
+            }
         }
     }
 
@@ -411,6 +443,32 @@ class TickerDetailViewModel(
 
     private fun parseDecimal(raw: String): Double? =
         raw.replace(",", ".").trim().takeIf { it.isNotEmpty() }?.toDoubleOrNull()
+
+    private fun parseAlertThreshold(type: AlertType, raw: String): Double? =
+        when (type) {
+            AlertType.FIFTY_TWO_WEEK_HIGH,
+            AlertType.FIFTY_TWO_WEEK_LOW,
+            AlertType.MA200_CROSS_UP,
+            AlertType.MA200_CROSS_DOWN,
+            AlertType.ANALYST_TARGET_REACH -> 0.0
+            else -> parseDecimal(raw)?.takeIf { it > 0.0 }
+        }
+
+    private fun defaultThresholdFor(type: AlertType, quotePrice: Double?): String =
+        when (type) {
+            AlertType.PRICE_ABOVE,
+            AlertType.PRICE_BELOW -> quotePrice?.let { "%.2f".format(it) } ?: ""
+            AlertType.PERCENT_CHANGE_DAY -> "3"
+            AlertType.PERCENT_ABOVE_ENTRY -> "10"
+            AlertType.PERCENT_BELOW_ENTRY -> "5"
+            AlertType.EARNINGS_REMINDER -> "1"
+            AlertType.VOLUME_SPIKE -> "2"
+            AlertType.FIFTY_TWO_WEEK_HIGH,
+            AlertType.FIFTY_TWO_WEEK_LOW,
+            AlertType.MA200_CROSS_UP,
+            AlertType.MA200_CROSS_DOWN,
+            AlertType.ANALYST_TARGET_REACH -> ""
+        }
 
     private fun trimmed(v: Double): String =
         if (v % 1.0 == 0.0) "%.0f".format(v) else v.toString()
