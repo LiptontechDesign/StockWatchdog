@@ -1,5 +1,7 @@
 package com.stockwatchdog.app.ui.portfolio
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,13 +27,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -132,6 +137,7 @@ fun PortfolioScreen(
 
 @Composable
 private fun PortfolioSummaryCard(state: PortfolioUiState) {
+    val brokerBreakdowns = state.brokerBreakdowns()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -220,11 +226,157 @@ private fun PortfolioSummaryCard(state: PortfolioUiState) {
                 }
             }
             Spacer(Modifier.height(8.dp))
+
+            if (brokerBreakdowns.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Broker performance",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    brokerBreakdowns.forEach { broker ->
+                        BrokerBreakdownRow(
+                            broker = broker,
+                            totalInvested = state.totalInvested
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
             Text(
                 "${state.holdings.size} holding${if (state.holdings.size != 1) "s" else ""}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+private data class BrokerBreakdown(
+    val name: String,
+    val invested: Double,
+    val currentValue: Double?,
+    val pnl: Double?,
+    val percentPnl: Double?,
+    val holdingsCount: Int
+)
+
+private fun PortfolioUiState.brokerBreakdowns(): List<BrokerBreakdown> =
+    holdings
+        .groupBy { holding ->
+            holding.platform
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: "No broker"
+        }
+        .map { (platform, rows) ->
+            val invested = rows.sumOf { it.totalInvested }
+            val hasCurrentValues = rows.all { it.currentValue != null && it.pnl != null }
+            val pnl = if (hasCurrentValues) rows.sumOf { it.pnl ?: 0.0 } else null
+            BrokerBreakdown(
+                name = platform,
+                invested = invested,
+                currentValue = if (hasCurrentValues) rows.sumOf { it.currentValue ?: 0.0 } else null,
+                pnl = pnl,
+                percentPnl = if (pnl != null && invested > 0.0) pnl / invested * 100.0 else null,
+                holdingsCount = rows.size
+            )
+        }
+        .sortedByDescending { it.invested }
+
+@Composable
+private fun BrokerBreakdownRow(
+    broker: BrokerBreakdown,
+    totalInvested: Double
+) {
+    val share = if (totalInvested > 0.0) {
+        (broker.invested / totalInvested).coerceIn(0.0, 1.0).toFloat()
+    } else {
+        0f
+    }
+    val performanceColor = broker.percentPnl?.let { changeColor(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.50f),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        broker.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "${broker.holdingsCount} holding${if (broker.holdingsCount != 1) "s" else ""} - ${"%.0f".format(share * 100f)}% invested",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        formatPrice(broker.currentValue ?: broker.invested),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
+                    )
+                    Text(
+                        broker.percentPnl?.let { formatSignedPercent(it) } ?: "--",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = performanceColor,
+                        maxLines = 1
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(share)
+                        .height(5.dp)
+                        .background(performanceColor.copy(alpha = 0.80f))
+                )
+            }
+            Row(Modifier.fillMaxWidth()) {
+                Text(
+                    "Invested ${formatPrice(broker.invested)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    broker.pnl?.let { formatSignedChange(it) } ?: "Waiting for price",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = performanceColor,
+                    maxLines = 1
+                )
+            }
         }
     }
 }

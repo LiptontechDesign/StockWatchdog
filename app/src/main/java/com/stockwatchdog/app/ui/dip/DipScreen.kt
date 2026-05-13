@@ -69,8 +69,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -120,11 +120,11 @@ private val ReleaseDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("
 
 @Composable
 private fun statusColor(status: ZoneStatus): Color = when (status) {
-    ZoneStatus.STRONG_BUY -> StrongBuyColor
-    ZoneStatus.IN_BUY_ZONE -> InBuyZoneColor
-    ZoneStatus.NEAR_ZONE -> NearZoneColor
-    ZoneStatus.ABOVE_ZONE -> AboveZoneColor
-    ZoneStatus.BELOW_ZONE -> BelowZoneColor
+    ZoneStatus.STRONG_BUY -> MaterialTheme.colorScheme.primary
+    ZoneStatus.IN_BUY_ZONE -> MaterialTheme.colorScheme.primary
+    ZoneStatus.NEAR_ZONE -> MaterialTheme.colorScheme.tertiary
+    ZoneStatus.ABOVE_ZONE -> MaterialTheme.colorScheme.tertiary
+    ZoneStatus.BELOW_ZONE -> MaterialTheme.colorScheme.error
     ZoneStatus.NO_DATA -> MaterialTheme.colorScheme.outline
 }
 
@@ -458,13 +458,10 @@ private fun TrackerSummaryCard(rows: List<DipRow>) {
     val ready = rows.count { it.status == ZoneStatus.STRONG_BUY || it.status == ZoneStatus.IN_BUY_ZONE }
     val near = rows.count { it.status == ZoneStatus.NEAR_ZONE }
     val total = rows.size
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val readyFill = if (isDark) PositiveGreen.copy(alpha = 0.14f) else RefSuccessBg
-    val readyText = if (isDark) Color(0xFF86EFAC) else RefSuccessText
-    val nearFill = if (isDark) NearZoneColor.copy(alpha = 0.16f) else RefNearBg
-    val nearText = if (isDark) Color(0xFFFACC15) else RefWarningText
-    val trackedFill = if (isDark) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f) else RefTrackBg
-    val trackedText = if (isDark) MaterialTheme.colorScheme.onPrimaryContainer else RefNavy
+    val baseFill = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
+    val readyText = MaterialTheme.colorScheme.primary
+    val nearText = MaterialTheme.colorScheme.tertiary
+    val trackedText = MaterialTheme.colorScheme.onSurfaceVariant
 
     Row(
         modifier = Modifier
@@ -472,9 +469,9 @@ private fun TrackerSummaryCard(rows: List<DipRow>) {
             .padding(bottom = 5.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        SummaryPill("$ready", "Ready", readyFill, readyText, Modifier.weight(1f))
-        SummaryPill("$near", "Near", nearFill, nearText, Modifier.weight(1f))
-        SummaryPill("$total", "Tracked", trackedFill, trackedText, Modifier.weight(1f))
+        SummaryPill("$ready", "Ready", baseFill, readyText, Modifier.weight(1f))
+        SummaryPill("$near", "Near", baseFill, nearText, Modifier.weight(1f))
+        SummaryPill("$total", "Tracked", baseFill, trackedText, Modifier.weight(1f))
     }
 }
 
@@ -491,7 +488,7 @@ private fun SummaryPill(
             .height(64.dp),
         color = fill,
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, textColor.copy(alpha = 0.20f))
+        border = BorderStroke(1.dp, textColor.copy(alpha = 0.28f))
     ) {
         Column(
             modifier = Modifier
@@ -677,17 +674,25 @@ private fun DipExpandedDetails(
     onOpenSymbol: () -> Unit
 ) {
     val lines = buildDipDetailLines(row, nowMs)
+    val analystLine = analystPlainText(row)?.let {
+        DipDetailText("Analyst view", it, analystTone(row.details))
+    } ?: DipDetailText(
+        label = "Analyst view",
+        text = "No analyst view available yet from the current data.",
+        tone = DipDetailTone.NEUTRAL
+    )
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(end = 5.dp, bottom = 12.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f), RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f), RoundedCornerShape(10.dp))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        lines.forEach { line ->
+        lines.forEachIndexed { index, line ->
             DipDetailLine(line)
+            if (index == 2) DipAnalystCallout(analystLine)
         }
         TextButton(
             onClick = onOpenSymbol,
@@ -706,13 +711,40 @@ private fun DipExpandedDetails(
 }
 
 @Composable
-private fun DipDetailLine(line: DipDetailText) {
-    val color = when (line.tone) {
-        DipDetailTone.GOOD -> RefSuccessText
-        DipDetailTone.WARNING -> RefWarningText
-        DipDetailTone.BAD -> Color(0xFF7A1A1A)
-        DipDetailTone.NEUTRAL -> RefNavy
+private fun DipAnalystCallout(line: DipDetailText) {
+    val color = dipDetailToneColor(line.tone)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = color.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(9.dp),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.24f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                line.label.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = color,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                line.text,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+        }
     }
+}
+
+@Composable
+private fun DipDetailLine(line: DipDetailText) {
+    val color = dipDetailToneColor(line.tone)
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
@@ -742,6 +774,14 @@ private fun DipDetailLine(line: DipDetailText) {
             )
         }
     }
+}
+
+@Composable
+private fun dipDetailToneColor(tone: DipDetailTone): Color = when (tone) {
+    DipDetailTone.GOOD -> MaterialTheme.colorScheme.primary
+    DipDetailTone.WARNING -> MaterialTheme.colorScheme.tertiary
+    DipDetailTone.BAD -> MaterialTheme.colorScheme.error
+    DipDetailTone.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 private data class DipDetailText(
@@ -788,9 +828,6 @@ private fun buildDipDetailLines(row: DipRow, nowMs: Long): List<DipDetailText> =
     )
     earningsPlainText(row.details, nowMs)?.let {
         add(DipDetailText("Results", it, DipDetailTone.WARNING))
-    }
-    analystPlainText(row)?.let {
-        add(DipDetailText("Analyst view", it, analystTone(row.details)))
     }
     trendPlainText(row)?.let {
         add(DipDetailText("Trend", it, DipDetailTone.NEUTRAL))
@@ -919,16 +956,21 @@ private fun DipInfoChip(
     warning: Boolean = false
 ) {
     val fill = if (warning) {
-        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f)
+        MaterialTheme.colorScheme.error.copy(alpha = 0.10f)
     } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)
     }
     val labelColor = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
     val valueColor = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     Column(
         modifier = modifier
             .background(fill, RoundedCornerShape(7.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(7.dp))
+            .border(
+                1.dp,
+                if (warning) MaterialTheme.colorScheme.error.copy(alpha = 0.22f)
+                else MaterialTheme.colorScheme.outlineVariant,
+                RoundedCornerShape(7.dp)
+            )
             .padding(horizontal = 6.dp, vertical = 5.dp),
         verticalArrangement = Arrangement.spacedBy(1.dp)
     ) {
@@ -951,13 +993,14 @@ private fun DipInfoChip(
     }
 }
 
+@Composable
 private fun refBadgeColors(status: ZoneStatus): Pair<Color, Color> = when (status) {
-    ZoneStatus.NEAR_ZONE -> Color(0xFFFFF0C0) to Color(0xFF5A3000)
+    ZoneStatus.NEAR_ZONE -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f) to MaterialTheme.colorScheme.tertiary
     ZoneStatus.IN_BUY_ZONE,
-    ZoneStatus.STRONG_BUY -> RefSuccessBg to RefSuccessText
-    ZoneStatus.ABOVE_ZONE -> RefNearBg to RefWarningText
-    ZoneStatus.BELOW_ZONE -> Color(0xFFFCE4E4) to Color(0xFF7A1A1A)
-    ZoneStatus.NO_DATA -> RefTrackBg to RefNavy
+    ZoneStatus.STRONG_BUY -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) to MaterialTheme.colorScheme.primary
+    ZoneStatus.ABOVE_ZONE -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f) to MaterialTheme.colorScheme.tertiary
+    ZoneStatus.BELOW_ZONE -> MaterialTheme.colorScheme.error.copy(alpha = 0.12f) to MaterialTheme.colorScheme.error
+    ZoneStatus.NO_DATA -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f) to MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 private fun compactEarningsChip(details: StockDetails?, nowMs: Long): String {
