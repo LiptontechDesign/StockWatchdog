@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import com.stockwatchdog.app.domain.PricePoint
 import com.stockwatchdog.app.ui.theme.NegativeRed
 import com.stockwatchdog.app.ui.theme.PositiveGreen
+import kotlin.math.max
 
 /**
  * Lightweight line chart implemented directly on Compose Canvas.
@@ -53,9 +54,11 @@ fun PriceLineChart(
     Canvas(modifier = modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
+        val paddingH = max(12f, w * 0.035f)
         val paddingV = h * 0.08f
+        val usableW = (w - paddingH * 2).coerceAtLeast(1f)
         val usableH = h - paddingV * 2
-        val stepX = if (points.size == 1) 0f else w / (points.size - 1).toFloat()
+        val stepX = if (points.size == 1) 0f else usableW / (points.size - 1).toFloat()
 
         // Light horizontal gridlines (4 divisions)
         val gridStroke = Stroke(width = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 8f), 0f))
@@ -63,8 +66,8 @@ fun PriceLineChart(
             val y = paddingV + usableH * (i / 4f)
             drawLine(
                 color = gridColor,
-                start = Offset(0f, y),
-                end = Offset(w, y),
+                start = Offset(paddingH, y),
+                end = Offset(w - paddingH, y),
                 strokeWidth = 1f,
                 pathEffect = gridStroke.pathEffect
             )
@@ -73,7 +76,7 @@ fun PriceLineChart(
         val path = Path()
         val fill = Path()
         points.forEachIndexed { i, pt ->
-            val x = i * stepX
+            val x = paddingH + i * stepX
             val norm = ((pt.close - min) / range).toFloat()
             val y = paddingV + usableH * (1f - norm)
             if (i == 0) {
@@ -85,7 +88,7 @@ fun PriceLineChart(
                 fill.lineTo(x, y)
             }
         }
-        fill.lineTo((points.size - 1) * stepX, h)
+        fill.lineTo(paddingH + (points.size - 1) * stepX, h)
         fill.close()
 
         drawPath(

@@ -2,30 +2,40 @@ package com.stockwatchdog.app.ui.detail
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +51,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -55,7 +66,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -242,6 +256,11 @@ fun TickerDetailScreen(
     if (state.lotDialogOpen) {
         val existingPlatforms = state.lots.mapNotNull { it.platform }.distinct()
         EditPositionDialog(
+            symbol = state.symbol,
+            companyName = state.quote?.name,
+            currentPrice = state.quote?.price,
+            percentChange = state.quote?.percentChange,
+            currency = state.quote?.currency,
             entryPriceDraft = state.lotDialogPriceDraft,
             amountInvestedDraft = state.lotDialogAmountDraft,
             platformDraft = state.lotDialogPlatformDraft,
@@ -391,11 +410,11 @@ private fun ChartArea(state: DetailUiState) {
 @Composable
 private fun SummaryGrid(state: DetailUiState) {
     val q = state.quote
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(12.dp)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(Modifier.padding(12.dp)) {
             SummaryRow("Open", formatPrice(q?.open), "Prev close", formatPrice(q?.previousClose))
@@ -1177,89 +1196,98 @@ private fun PositionSection(
     )
     val lotPnlById = pnl.perLot.associateBy { it.lotId }
 
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(12.dp)
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(
+            Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    "Your position",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                TextButton(onClick = onAddLot) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Your position",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        if (state.lots.isEmpty()) {
+                            "Track your entry and invested amount."
+                        } else {
+                            "${state.lots.size} entr${if (state.lots.size == 1) "y" else "ies"} tracked"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Button(
+                    onClick = onAddLot,
+                    modifier = Modifier.heightIn(min = 44.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
                     Text(if (state.lots.isEmpty()) "Add position" else "Add another")
                 }
             }
 
             if (state.lots.isEmpty()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "Add your entry point and the amount you invested to track " +
-                        "total gain/loss and unlock gain/loss alerts.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                PositionHintCard(
+                    title = "What this unlocks",
+                    body = "Net gain/loss, average entry, and fast take-profit or stop-loss alerts."
                 )
             } else {
-                Spacer(Modifier.height(6.dp))
                 if (state.platformFeePercent > 0) {
-                    Text(
-                        "${"%.2f".format(state.platformFeePercent)}% fee deducted from returns",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-                SummaryRow(
-                    "Total invested", formatPrice(pnl.totalInvested),
-                    "Current value", formatPrice(pnl.positionValue)
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (state.platformFeePercent > 0) "Net P&L" else "Total P&L",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            formatSignedChange(pnl.totalPnl),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = changeColor(pnl.totalPnl)
-                        )
-                    }
-                    Column(
-                        Modifier.weight(1f),
-                        horizontalAlignment = Alignment.End
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            if (state.platformFeePercent > 0) "Net return" else "Return",
+                            "${"%.2f".format(state.platformFeePercent)}% fee deducted from returns",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            formatSignedPercent(pnl.percentPnl),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = changeColor(pnl.percentPnl)
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                         )
                     }
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    PositionMetricCard("Invested", formatPrice(pnl.totalInvested), Modifier.weight(1f))
+                    Spacer(Modifier.size(8.dp))
+                    PositionMetricCard("Value", formatPrice(pnl.positionValue), Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    PositionMetricCard(
+                        if (state.platformFeePercent > 0) "Net P&L" else "Total P&L",
+                        formatSignedChange(pnl.totalPnl),
+                        Modifier.weight(1f),
+                        changeColor(pnl.totalPnl)
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    PositionMetricCard(
+                        if (state.platformFeePercent > 0) "Net return" else "Return",
+                        formatSignedPercent(pnl.percentPnl),
+                        Modifier.weight(1f),
+                        changeColor(pnl.percentPnl)
+                    )
                 }
 
                 state.lots.forEachIndexed { index, lot ->
-                    Spacer(Modifier.height(12.dp))
                     val lotTitle = if (lot.platform != null)
-                        "Position ${index + 1} · ${lot.platform}"
+                        "Position ${index + 1} - ${lot.platform}"
                     else "Position ${index + 1}"
                     LotCard(
                         title = lotTitle,
@@ -1270,7 +1298,6 @@ private fun PositionSection(
                         onDelete = { onDeleteLot(lot.id) }
                     )
                 }
-                Spacer(Modifier.height(12.dp))
                 TpSlShortcuts(
                     hasEntryPrice = state.avgEntryPrice != null,
                     platformFeePercent = state.platformFeePercent,
@@ -1278,6 +1305,70 @@ private fun PositionSection(
                     onStopLoss = onStopLoss
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun PositionHintCard(
+    title: String,
+    body: String
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun PositionMetricCard(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    valueColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 70.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                label.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = valueColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -1306,61 +1397,60 @@ private fun LotCard(
                 Text(
                     title,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
-                Row {
-                    TextButton(onClick = onEdit) { Text("Edit") }
-                    TextButton(
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit position")
+                    }
+                    IconButton(
                         onClick = onDelete,
-                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete position",
+                            tint = MaterialTheme.colorScheme.error
                         )
-                    ) { Text("Delete") }
+                    }
                 }
             }
-            SummaryRow(
-                "Entry point", formatPrice(lot.entryPrice),
-                "Amount invested", formatPrice(lot.amountInvested)
-            )
+            Row(Modifier.fillMaxWidth()) {
+                PositionMetricCard("Entry", formatPrice(lot.entryPrice), Modifier.weight(1f))
+                Spacer(Modifier.size(8.dp))
+                PositionMetricCard("Invested", formatPrice(lot.amountInvested), Modifier.weight(1f))
+            }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (platformFeePercent > 0) "Net since entry" else "Since entry",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        formatSignedChange(pnl?.pnl),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = changeColor(pnl?.pnl)
-                    )
-                }
-                Column(
+                PositionMetricCard(
+                    if (platformFeePercent > 0) "Net P&L" else "P&L",
+                    formatSignedChange(pnl?.pnl),
                     Modifier.weight(1f),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    Text(
-                        if (platformFeePercent > 0) "Net return" else "Return",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        formatSignedPercent(pnl?.percentPnl),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = changeColor(pnl?.percentPnl)
-                    )
-                }
+                    changeColor(pnl?.pnl)
+                )
+                Spacer(Modifier.size(8.dp))
+                PositionMetricCard(
+                    if (platformFeePercent > 0) "Net return" else "Return",
+                    formatSignedPercent(pnl?.percentPnl),
+                    Modifier.weight(1f),
+                    changeColor(pnl?.percentPnl)
+                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EditPositionDialog(
+    symbol: String,
+    companyName: String?,
+    currentPrice: Double?,
+    percentChange: Double?,
+    currency: String?,
     entryPriceDraft: String,
     amountInvestedDraft: String,
     platformDraft: String,
@@ -1374,71 +1464,274 @@ private fun EditPositionDialog(
 ) {
     val entryOk = entryPriceDraft.replace(",", ".").toDoubleOrNull()?.let { it > 0 } == true
     val amountOk = amountInvestedDraft.replace(",", ".").toDoubleOrNull()?.let { it > 0 } == true
-    AlertDialog(
+    val canSave = entryOk && amountOk
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isEditing) "Edit position" else "Add position") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = entryPriceDraft,
-                    onValueChange = onEntryChange,
-                    label = { Text("Entry price per share") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    supportingText = { Text("The price you paid for one share.") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = amountInvestedDraft,
-                    onValueChange = onAmountChange,
-                    label = { Text("Total amount invested") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    supportingText = { Text("Your total cash put into this entry.") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = platformDraft,
-                    onValueChange = onPlatformChange,
-                    label = { Text("Platform / broker (optional)") },
-                    placeholder = { Text("e.g. Ndovu, Hisa") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (existingPlatforms.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        existingPlatforms.forEach { name ->
-                            AssistChip(
-                                onClick = { onPlatformChange(name) },
-                                label = { Text(name) }
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.68f)),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding(),
+                color = MaterialTheme.colorScheme.background,
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        Modifier
+                            .size(width = 44.dp, height = 5.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(3.dp))
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (isEditing) "Edit position" else "Add position",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                "Use the current price as your reference.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
+                    }
+
+                    PositionQuoteChip(
+                        symbol = symbol,
+                        companyName = companyName,
+                        currentPrice = currentPrice,
+                        percentChange = percentChange,
+                        currency = currency
+                    )
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Column(
+                            Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                "ENTRY DETAILS",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            PositionDialogField(
+                                value = entryPriceDraft,
+                                onValueChange = onEntryChange,
+                                label = "Entry price",
+                                placeholder = currentPrice?.let { formatPrice(it, currency) } ?: "Price per share",
+                                supporting = "The price you paid for one share.",
+                                isError = entryPriceDraft.isNotBlank() && !entryOk
+                            )
+                            PositionDialogField(
+                                value = amountInvestedDraft,
+                                onValueChange = onAmountChange,
+                                label = "Amount invested",
+                                placeholder = "Total cash used",
+                                supporting = "Your total money put into this entry.",
+                                isError = amountInvestedDraft.isNotBlank() && !amountOk
                             )
                         }
                     }
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Column(
+                            Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "PLATFORM",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.size(8.dp))
+                                Text(
+                                    "Optional",
+                                    modifier = Modifier
+                                        .background(
+                                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                            OutlinedTextField(
+                                value = platformDraft,
+                                onValueChange = onPlatformChange,
+                                label = { Text("Broker or app") },
+                                placeholder = { Text("e.g. Ndovu, Hisa") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            if (existingPlatforms.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    existingPlatforms.forEach { name ->
+                                        AssistChip(
+                                            onClick = { onPlatformChange(name) },
+                                            label = { Text(name) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    PositionHintCard(
+                        title = "Simple read",
+                        body = "Entry price tells the app where you bought. Amount invested tells it how much money to track."
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 50.dp)
+                        ) {
+                            Text("Cancel")
+                        }
+                        Button(
+                            onClick = onSave,
+                            enabled = canSave,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 50.dp)
+                        ) {
+                            Text(if (isEditing) "Save position" else "Add position")
+                        }
+                    }
                 }
-                Spacer(Modifier.height(6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PositionQuoteChip(
+    symbol: String,
+    companyName: String?,
+    currentPrice: Double?,
+    percentChange: Double?,
+    currency: String?
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    "Enter the price per share you bought at and the total amount " +
-                        "invested at this entry. Add another position later if you buy more.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    symbol,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    companyName.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.74f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onSave,
-                enabled = entryOk && amountOk
-            ) { Text(if (isEditing) "Save position" else "Add position") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    formatPrice(currentPrice, currency),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    "${formatSignedPercent(percentChange)} today",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (percentChange == null) {
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                    } else {
+                        changeColor(percentChange)
+                    }
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun PositionDialogField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    supporting: String,
+    isError: Boolean
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        placeholder = { Text(placeholder) },
+        singleLine = true,
+        isError = isError,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        supportingText = {
+            Text(if (isError) "Enter a number above 0." else supporting)
+        },
+        modifier = Modifier.fillMaxWidth()
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TpSlShortcuts(
     hasEntryPrice: Boolean,
@@ -1454,9 +1747,10 @@ private fun TpSlShortcuts(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(6.dp))
-        Row(
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.horizontalScroll(rememberScrollState())
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
             OutlinedButton(onClick = { onTakeProfit(10.0) }) { Text("TP +10%") }
             OutlinedButton(onClick = { onTakeProfit(20.0) }) { Text("TP +20%") }
@@ -1484,7 +1778,7 @@ fun describeAlert(a: AlertEntity): String = when (a.type) {
     AlertType.ANALYST_TARGET_REACH -> "Reaches analyst price target"
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun CreateAlertDialog(
     type: AlertType,
@@ -1508,21 +1802,23 @@ private fun CreateAlertDialog(
             Column {
                 Text("Trigger", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
-                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     FilterChip(
                         selected = type == AlertType.PRICE_ABOVE,
                         onClick = { onTypeChange(AlertType.PRICE_ABOVE) },
                         label = { Text("Price above") },
                         modifier = Modifier.heightIn(min = 44.dp)
                     )
-                    Spacer(Modifier.size(6.dp))
                     FilterChip(
                         selected = type == AlertType.PRICE_BELOW,
                         onClick = { onTypeChange(AlertType.PRICE_BELOW) },
                         label = { Text("Price below") },
                         modifier = Modifier.heightIn(min = 44.dp)
                     )
-                    Spacer(Modifier.size(6.dp))
                     FilterChip(
                         selected = type == AlertType.PERCENT_CHANGE_DAY,
                         onClick = { onTypeChange(AlertType.PERCENT_CHANGE_DAY) },
@@ -1531,7 +1827,11 @@ private fun CreateAlertDialog(
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     FilterChip(
                         selected = type == AlertType.PERCENT_ABOVE_ENTRY,
                         onClick = { onTypeChange(AlertType.PERCENT_ABOVE_ENTRY) },
@@ -1539,7 +1839,6 @@ private fun CreateAlertDialog(
                         label = { Text(if (platformFeePercent > 0) "Net gain vs entry" else "Gain vs entry") },
                         modifier = Modifier.heightIn(min = 44.dp)
                     )
-                    Spacer(Modifier.size(6.dp))
                     FilterChip(
                         selected = type == AlertType.PERCENT_BELOW_ENTRY,
                         onClick = { onTypeChange(AlertType.PERCENT_BELOW_ENTRY) },
