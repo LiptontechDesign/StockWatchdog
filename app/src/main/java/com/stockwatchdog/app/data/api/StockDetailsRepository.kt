@@ -485,8 +485,12 @@ class StockDetailsRepository(
             analystConsensusPeriod = analystConsensusPeriod ?: fallback.analystConsensusPeriod,
             totalRevenue = totalRevenue ?: fallback.totalRevenue,
             netIncome = netIncome ?: fallback.netIncome,
-            revenueGrowthPct = revenueGrowthPct ?: fallback.revenueGrowthPct,
-            epsGrowthPct = epsGrowthPct ?: fallback.epsGrowthPct,
+        revenueGrowthPct = revenueGrowthPct ?: fallback.revenueGrowthPct,
+        revenueGrowthCurrentLabel = revenueGrowthCurrentLabel ?: fallback.revenueGrowthCurrentLabel,
+        revenueGrowthComparisonLabel = revenueGrowthComparisonLabel ?: fallback.revenueGrowthComparisonLabel,
+        epsGrowthPct = epsGrowthPct ?: fallback.epsGrowthPct,
+        epsGrowthCurrentLabel = epsGrowthCurrentLabel ?: fallback.epsGrowthCurrentLabel,
+        epsGrowthComparisonLabel = epsGrowthComparisonLabel ?: fallback.epsGrowthComparisonLabel,
             grossMarginPct = grossMarginPct ?: fallback.grossMarginPct,
             operatingMarginPct = operatingMarginPct ?: fallback.operatingMarginPct,
             profitMarginPct = profitMarginPct ?: fallback.profitMarginPct,
@@ -630,9 +634,14 @@ private fun buildFmpDetails(
     cashFlow: FmpCashFlowStatement?,
     quote: FmpQuote?
 ): StockDetails? {
-    val latestIncome = income.firstOrNull()
+    val sortedIncome = income.sortedWith(
+        compareByDescending<FmpIncomeStatement> { it.statementDate() ?: LocalDate.MIN }
+            .thenByDescending { it.fiscalYear?.toIntOrNull() ?: Int.MIN_VALUE }
+            .thenByDescending { it.periodRank() }
+    )
+    val latestIncome = sortedIncome.firstOrNull()
     val comparisonIncome = latestIncome?.let { latest ->
-        income.drop(1).firstOrNull {
+        sortedIncome.drop(1).firstOrNull {
             it.period == latest.period &&
                 it.fiscalYear?.toIntOrNull() == latest.fiscalYear?.toIntOrNull()?.minus(1)
         }
@@ -656,7 +665,7 @@ private fun buildFmpDetails(
         .filter { it.first.epsActual != null || it.first.revenueActual != null }
         .maxByOrNull { it.second }
 
-    val epsTtm = income.take(4)
+    val epsTtm = sortedIncome.take(4)
         .mapNotNull { it.epsDiluted ?: it.eps }
         .takeIf { it.isNotEmpty() }
         ?.sum()
@@ -682,7 +691,25 @@ private fun buildFmpDetails(
         totalRevenue = latestIncome?.revenue,
         netIncome = latestIncome?.netIncome,
         revenueGrowthPct = percentChange(latestIncome?.revenue, comparisonIncome?.revenue),
+        revenueGrowthCurrentLabel = latestIncome
+            ?.takeIf { it.revenue != null && comparisonIncome?.revenue != null }
+            ?.periodLabel(),
+        revenueGrowthComparisonLabel = comparisonIncome
+            ?.takeIf { latestIncome?.revenue != null && it.revenue != null }
+            ?.periodLabel(),
         epsGrowthPct = percentChange(latestIncome?.epsDiluted ?: latestIncome?.eps, comparisonIncome?.epsDiluted ?: comparisonIncome?.eps),
+        epsGrowthCurrentLabel = latestIncome
+            ?.takeIf {
+                (it.epsDiluted ?: it.eps) != null &&
+                    (comparisonIncome?.epsDiluted ?: comparisonIncome?.eps) != null
+            }
+            ?.periodLabel(),
+        epsGrowthComparisonLabel = comparisonIncome
+            ?.takeIf {
+                (latestIncome?.epsDiluted ?: latestIncome?.eps) != null &&
+                    (it.epsDiluted ?: it.eps) != null
+            }
+            ?.periodLabel(),
         grossMarginPct = percentOf(latestIncome?.grossProfit, latestIncome?.revenue),
         operatingMarginPct = percentOf(latestIncome?.operatingIncome, latestIncome?.revenue),
         profitMarginPct = percentOf(latestIncome?.netIncome, latestIncome?.revenue),
@@ -763,7 +790,15 @@ private fun buildEdgarDetails(
         totalRevenue = revenue,
         netIncome = netIncome,
         revenueGrowthPct = percentChange(revenue, revenueComparison?.fact?.value),
+        revenueGrowthCurrentLabel = latestRevenue
+            ?.takeIf { revenue != null && revenueComparison?.fact?.value != null }
+            ?.periodBaseLabel(),
+        revenueGrowthComparisonLabel = revenueComparison?.periodBaseLabel(),
         epsGrowthPct = percentChange(latestEps?.fact?.value, epsComparison?.fact?.value),
+        epsGrowthCurrentLabel = latestEps
+            ?.takeIf { it.fact.value != null && epsComparison?.fact?.value != null }
+            ?.periodBaseLabel(),
+        epsGrowthComparisonLabel = epsComparison?.periodBaseLabel(),
         grossMarginPct = percentOf(latestGrossProfit?.fact?.value, revenue),
         operatingMarginPct = percentOf(latestOperatingIncome?.fact?.value, revenue),
         profitMarginPct = percentOf(netIncome, revenue),
@@ -816,7 +851,11 @@ data class StockDetails(
     val totalRevenue: Double? = null,
     val netIncome: Double? = null,
     val revenueGrowthPct: Double? = null,
+    val revenueGrowthCurrentLabel: String? = null,
+    val revenueGrowthComparisonLabel: String? = null,
     val epsGrowthPct: Double? = null,
+    val epsGrowthCurrentLabel: String? = null,
+    val epsGrowthComparisonLabel: String? = null,
     val grossMarginPct: Double? = null,
     val operatingMarginPct: Double? = null,
     val profitMarginPct: Double? = null,
@@ -1000,6 +1039,19 @@ private fun FmpIncomeStatement.periodLabel(): String? =
         else -> null
     }
 
+private fun FmpIncomeStatement.statementDate(): LocalDate? =
+    date?.let { runCatching { LocalDate.parse(it, DateTimeFormatter.ISO_LOCAL_DATE) }.getOrNull() }
+
+private fun FmpIncomeStatement.periodRank(): Int =
+    when (period?.uppercase(Locale.US)) {
+        "Q1" -> 1
+        "Q2" -> 2
+        "Q3" -> 3
+        "Q4" -> 4
+        "FY" -> 5
+        else -> 0
+    }
+
 private fun FmpBalanceSheet.periodLabel(): String? =
     when {
         !period.isNullOrBlank() && !fiscalYear.isNullOrBlank() -> "$period $fiscalYear"
@@ -1074,23 +1126,23 @@ private fun Map<String, EdgarConcept>.latestInstantFact(
         .maxWithOrNull(edgarPickedFactComparator)
 
 private fun Map<String, EdgarConcept>.comparisonDurationFact(current: EdgarPickedFact): EdgarPickedFact? {
-    val currentEnd = current.fact.endDate() ?: return null
     val currentFp = current.fact.fp?.uppercase(Locale.US)
     val currentFy = current.fact.fy
     val candidates = candidateFacts(listOf(current.concept), listOf(current.unit))
         .filter { it.fact.isReportForm() && it.fact.isUsableDurationFact() }
-        .filter { (it.fact.endDate() ?: LocalDate.MIN).isBefore(currentEnd) }
         .toList()
 
-    val samePeriodPriorYear = candidates
-        .filter {
+    // Growth must be year-over-year: Q2 vs prior-year Q2, or FY vs prior FY.
+    // If that exact prior-year period is missing, return null instead of
+    // falling back to the previous quarter and showing a misleading number.
+    return candidates
+        .filter { candidate ->
             currentFy != null &&
-                it.fact.fy == currentFy - 1 &&
-                it.fact.fp?.uppercase(Locale.US) == currentFp
+                currentFp != null &&
+                candidate.fact.fy == currentFy - 1 &&
+                candidate.fact.fp?.uppercase(Locale.US) == currentFp
         }
         .maxWithOrNull(edgarPickedFactComparator)
-
-    return samePeriodPriorYear ?: candidates.maxWithOrNull(edgarPickedFactComparator)
 }
 
 private fun Map<String, EdgarConcept>.candidateFacts(
@@ -1132,7 +1184,25 @@ private fun EdgarFact.isUsableInstantFact(): Boolean {
 }
 
 private fun EdgarPickedFact.periodLabel(): String? {
-    val base = fact.frame
+    val base = periodBaseLabel()
+    val filed = fact.filedDate()?.format(EDGAR_FILED_FORMAT)
+    return when {
+        base != null && filed != null -> "$base filed $filed"
+        else -> base
+    }
+}
+
+private fun EdgarPickedFact.periodBaseLabel(): String? =
+    run {
+        val fy = fact.fy?.toString()
+        val fp = fact.fp?.uppercase(Locale.US)
+        when {
+            fy != null && fp in setOf("Q1", "Q2", "Q3", "Q4") -> "$fp $fy"
+            fy != null && fp == "FY" -> "FY $fy"
+            fy != null -> fy
+            else -> null
+        }
+    } ?: fact.frame
         ?.removeSuffix("I")
         ?.let { EDGAR_PERIOD_FRAME.find(it) }
         ?.let { match ->
@@ -1140,22 +1210,6 @@ private fun EdgarPickedFact.periodLabel(): String? {
             val quarter = match.groupValues.getOrNull(2).orEmpty()
             if (quarter.isNotBlank()) "$quarter $year" else "FY $year"
         }
-        ?: run {
-            val fy = fact.fy?.toString()
-            val fp = fact.fp?.uppercase(Locale.US)
-            when {
-                fy != null && fp in setOf("Q1", "Q2", "Q3", "Q4") -> "$fp $fy"
-                fy != null && fp == "FY" -> "FY $fy"
-                fy != null -> fy
-                else -> null
-            }
-        }
-    val filed = fact.filedDate()?.format(EDGAR_FILED_FORMAT)
-    return when {
-        base != null && filed != null -> "$base filed $filed"
-        else -> base
-    }
-}
 
 private fun EdgarPickedFact.currency(): String? =
     unit.substringBefore("/").takeIf { it.isNotBlank() }

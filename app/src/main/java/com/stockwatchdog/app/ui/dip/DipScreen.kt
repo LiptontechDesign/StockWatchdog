@@ -51,6 +51,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,6 +69,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -456,6 +458,13 @@ private fun TrackerSummaryCard(rows: List<DipRow>) {
     val ready = rows.count { it.status == ZoneStatus.STRONG_BUY || it.status == ZoneStatus.IN_BUY_ZONE }
     val near = rows.count { it.status == ZoneStatus.NEAR_ZONE }
     val total = rows.size
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val readyFill = if (isDark) PositiveGreen.copy(alpha = 0.14f) else RefSuccessBg
+    val readyText = if (isDark) Color(0xFF86EFAC) else RefSuccessText
+    val nearFill = if (isDark) NearZoneColor.copy(alpha = 0.16f) else RefNearBg
+    val nearText = if (isDark) Color(0xFFFACC15) else RefWarningText
+    val trackedFill = if (isDark) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f) else RefTrackBg
+    val trackedText = if (isDark) MaterialTheme.colorScheme.onPrimaryContainer else RefNavy
 
     Row(
         modifier = Modifier
@@ -463,9 +472,9 @@ private fun TrackerSummaryCard(rows: List<DipRow>) {
             .padding(bottom = 5.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        SummaryPill("$ready", "Ready", RefSuccessBg, RefSuccessText, Modifier.weight(1f))
-        SummaryPill("$near", "Near", RefNearBg, RefWarningText, Modifier.weight(1f))
-        SummaryPill("$total", "Tracked", RefTrackBg, RefNavy, Modifier.weight(1f))
+        SummaryPill("$ready", "Ready", readyFill, readyText, Modifier.weight(1f))
+        SummaryPill("$near", "Near", nearFill, nearText, Modifier.weight(1f))
+        SummaryPill("$total", "Tracked", trackedFill, trackedText, Modifier.weight(1f))
     }
 }
 
@@ -477,24 +486,33 @@ private fun SummaryPill(
     textColor: Color,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Surface(
         modifier = modifier
-            .background(fill, RoundedCornerShape(10.dp))
-            .padding(horizontal = 6.dp, vertical = 9.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .height(64.dp),
+        color = fill,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, textColor.copy(alpha = 0.20f))
     ) {
-        Text(
-            value,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.ExtraBold,
-            color = textColor
-        )
-        Text(
-            label.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.ExtraBold,
-            color = textColor
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                value,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = textColor
+            )
+            Text(
+                label.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = textColor
+            )
+        }
     }
 }
 

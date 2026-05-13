@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
@@ -450,6 +452,7 @@ private fun SummaryCell(label: String, value: String, modifier: Modifier = Modif
 @Composable
 private fun FinancialsSection(state: DetailUiState) {
     val details = state.details
+    var expandedSection by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             Modifier.fillMaxWidth(),
@@ -472,9 +475,18 @@ private fun FinancialsSection(state: DetailUiState) {
         }
 
         FinancialPunchSummary(details = details, currentPrice = state.quote?.price)
+        FinancialKeyGrid(details = details, currentPrice = state.quote?.price)
         AnalystConsensusCard(details = details, currentPrice = state.quote?.price)
 
-        FinancialMetricCard("Results") {
+        FinancialExpandableCard(
+            title = "Results",
+            summary = compactPairSummary(
+                "Next ${formatResultDate(details)}",
+                revenueResultLabel(details).replace("Revenue ", "Rev ") + " ${formatRevenueSurprise(details)}"
+            ),
+            expanded = expandedSection == 0,
+            onToggle = { expandedSection = if (expandedSection == 0) -1 else 0 }
+        ) {
             FinancialMetricRow(
                 "Next results",
                 formatResultDate(details),
@@ -490,20 +502,53 @@ private fun FinancialsSection(state: DetailUiState) {
                 details.latestFinancialPeriod ?: details.lastEpsQuarterLabel ?: "--",
                 tone1 = toneForSigned(details.revenueSurprisePct())
             )
+            FinancialDetailHint("Fresh results can quickly change the buy case, so this is the first item to check before adding more money.")
         }
 
-        FinancialMetricCard("Growth") {
+        FinancialExpandableCard(
+            title = "Growth",
+            summary = compactPairSummary(
+                "Rev ${formatSignedPercentHint(details.revenueGrowthPct, "--")}",
+                "EPS ${formatSignedPercentHint(details.epsGrowthPct, "--")}"
+            ),
+            expanded = expandedSection == 1,
+            onToggle = { expandedSection = if (expandedSection == 1) -1 else 1 }
+        ) {
             FinancialMetricRow(
-                "Revenue growth",
+                "Revenue YoY",
                 formatSignedPercentHint(details.revenueGrowthPct, ""),
-                "EPS growth",
+                "EPS YoY",
                 formatSignedPercentHint(details.epsGrowthPct, ""),
                 tone1 = toneForSigned(details.revenueGrowthPct),
                 tone2 = toneForSigned(details.epsGrowthPct)
             )
+            Spacer(Modifier.height(8.dp))
+            FinancialMetricRow(
+                "Revenue compared",
+                growthComparisonText(
+                    details.revenueGrowthPct,
+                    details.revenueGrowthCurrentLabel,
+                    details.revenueGrowthComparisonLabel
+                ),
+                "EPS compared",
+                growthComparisonText(
+                    details.epsGrowthPct,
+                    details.epsGrowthCurrentLabel,
+                    details.epsGrowthComparisonLabel
+                )
+            )
+            FinancialDetailHint("YoY means the same quarter last year, not the previous quarter. For annual reports it means this year vs last year.")
         }
 
-        FinancialMetricCard("Profitability") {
+        FinancialExpandableCard(
+            title = "Profitability",
+            summary = compactPairSummary(
+                "Margin ${formatPercentHint(details.profitMarginPct, "--")}",
+                "FCF ${formatCompactMoneyHint(details.freeCashflow, "--")}"
+            ),
+            expanded = expandedSection == 2,
+            onToggle = { expandedSection = if (expandedSection == 2) -1 else 2 }
+        ) {
             FinancialMetricRow(
                 "Revenue",
                 formatCompactMoneyHint(details.totalRevenue, ""),
@@ -520,9 +565,18 @@ private fun FinancialsSection(state: DetailUiState) {
                 tone1 = toneForMargin(details.operatingMarginPct),
                 tone2 = toneForSigned(details.freeCashflow)
             )
+            FinancialDetailHint("Revenue is sales. Margin and free cash flow show how much of those sales can become useful profit or cash.")
         }
 
-        FinancialMetricCard("Safety") {
+        FinancialExpandableCard(
+            title = "Safety",
+            summary = compactPairSummary(
+                "Debt/equity ${formatRatioHint(details.debtToEquity, "--")}",
+                "Cash ${formatCompactMoneyHint(details.totalCash, "--")}"
+            ),
+            expanded = expandedSection == 3,
+            onToggle = { expandedSection = if (expandedSection == 3) -1 else 3 }
+        ) {
             FinancialMetricRow(
                 "Debt/equity",
                 formatRatioHint(details.debtToEquity, ""),
@@ -538,9 +592,18 @@ private fun FinancialsSection(state: DetailUiState) {
                 formatRatioHint(details.currentRatio, ""),
                 tone2 = toneForCurrentRatio(details.currentRatio)
             )
+            FinancialDetailHint("Lower debt and stronger cash help a company survive weak markets without depending too much on borrowing.")
         }
 
-        FinancialMetricCard("Valuation") {
+        FinancialExpandableCard(
+            title = "Valuation",
+            summary = compactPairSummary(
+                "P/E ${formatMultipleHint(details.trailingPe, "--")}",
+                "Target ${formatPrice(details.analystTargetMean)}"
+            ),
+            expanded = expandedSection == 4,
+            onToggle = { expandedSection = if (expandedSection == 4) -1 else 4 }
+        ) {
             FinancialMetricRow(
                 "P/E",
                 formatMultipleHint(details.trailingPe, ""),
@@ -556,8 +619,165 @@ private fun FinancialsSection(state: DetailUiState) {
                 "Analyst target",
                 formatPrice(details.analystTargetMean)
             )
+            FinancialDetailHint("Valuation tells you whether the price looks cheap or expensive compared with profit and analyst expectations.")
         }
     }
+}
+
+@Composable
+private fun FinancialKeyGrid(details: StockDetails, currentPrice: Double?) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FinancialKeyTile(
+                label = "Next results",
+                value = formatResultDateShort(details),
+                note = details.nextEarningsQuarterLabel ?: "report date",
+                modifier = Modifier.weight(1f)
+            )
+            FinancialKeyTile(
+                label = "Revenue YoY",
+                value = formatSignedPercentHint(details.revenueGrowthPct, "--"),
+                note = growthComparisonText(
+                    details.revenueGrowthPct,
+                    details.revenueGrowthCurrentLabel,
+                    details.revenueGrowthComparisonLabel
+                ),
+                tone = toneForSigned(details.revenueGrowthPct),
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FinancialKeyTile(
+                label = "EPS YoY",
+                value = formatSignedPercentHint(details.epsGrowthPct, "--"),
+                note = growthComparisonText(
+                    details.epsGrowthPct,
+                    details.epsGrowthCurrentLabel,
+                    details.epsGrowthComparisonLabel
+                ),
+                tone = toneForSigned(details.epsGrowthPct),
+                modifier = Modifier.weight(1f)
+            )
+            FinancialKeyTile(
+                label = "Target upside",
+                value = formatSignedPercentHint(details.upsideToTargetPct(currentPrice), "--"),
+                note = analystConsensusLabel(details) ?: "analyst view",
+                tone = toneForSigned(details.upsideToTargetPct(currentPrice)),
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FinancialKeyTile(
+    label: String,
+    value: String,
+    note: String,
+    modifier: Modifier = Modifier,
+    tone: FinancialTone? = null
+) {
+    Surface(
+        modifier = modifier.height(92.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                label.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = tone?.let { financialToneColor(it) } ?: MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                note,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun FinancialExpandableCard(
+    title: String,
+    summary: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Hide details" else "Show details",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (expanded) {
+                Spacer(Modifier.height(12.dp))
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun FinancialDetailHint(text: String) {
+    Spacer(Modifier.height(10.dp))
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f),
+                RoundedCornerShape(8.dp)
+            )
+            .padding(10.dp)
+    )
 }
 
 @Composable
@@ -647,6 +867,7 @@ private fun AnalystVoteBar(details: StockDetails) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FinancialPunchSummary(details: StockDetails, currentPrice: Double?) {
     val pulse = buildFinancialPulse(details, currentPrice)
@@ -680,10 +901,12 @@ private fun FinancialPunchSummary(details: StockDetails, currentPrice: Double?) 
             )
         }
         if (chips.isNotEmpty()) {
-            chips.chunked(3).forEach { group ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    group.forEach { SignalChip(it) }
-                }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                chips.forEach { SignalChip(it) }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -727,13 +950,13 @@ private fun buildSignalChips(
 ): List<SignalChipData> = buildList {
     details.revenueGrowthPct?.let {
         add(SignalChipData(
-            "Rev %+.0f%%".format(it),
+            "Rev YoY %+.0f%%".format(it),
             if (it >= 0) FinancialTone.GOOD else FinancialTone.BAD
         ))
     }
     details.epsGrowthPct?.let {
         add(SignalChipData(
-            "EPS %+.0f%%".format(it),
+            "EPS YoY %+.0f%%".format(it),
             if (it >= 0) FinancialTone.GOOD else FinancialTone.BAD
         ))
     }
@@ -784,11 +1007,11 @@ private fun FinancialMetricCard(
     title: String,
     content: @Composable () -> Unit
 ) {
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(12.dp)
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(Modifier.padding(14.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -997,6 +1220,21 @@ private fun formatRevenueSurprise(details: StockDetails): String {
 private fun revenueResultLabel(details: StockDetails): String =
     if (details.lastRevenueEstimate != null) "Revenue surprise" else "Revenue actual"
 
+private fun compactPairSummary(first: String, second: String): String =
+    listOf(first, second)
+        .map { it.trim() }
+        .filter { it.isNotBlank() && !it.endsWith("--") }
+        .joinToString(" · ")
+        .ifBlank { "--" }
+
+private fun growthComparisonText(value: Double?, currentLabel: String?, comparisonLabel: String?): String =
+    when {
+        value == null -> "No clean YoY match"
+        currentLabel != null && comparisonLabel != null -> "$currentLabel vs $comparisonLabel"
+        comparisonLabel != null -> "vs $comparisonLabel"
+        else -> "vs same period last year"
+    }
+
 private fun analystConsensusLabel(details: StockDetails): String? =
     when (details.analystRecommendation?.trim()?.lowercase()?.replace("-", "_")?.replace(" ", "_")) {
         "strong_buy", "strongbuy" -> "Strong buy"
@@ -1051,10 +1289,16 @@ private fun analystVoteLine(details: StockDetails): String {
 }
 
 private val FinancialDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, HH:mm")
+private val FinancialShortDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d")
 
 private fun formatFinancialDate(epochSeconds: Long?): String =
     epochSeconds
         ?.let { Instant.ofEpochSecond(it).atZone(MarketClock.KENYA).format(FinancialDateFormat) + " EAT" }
+        ?: "--"
+
+private fun formatFinancialShortDate(epochSeconds: Long?): String =
+    epochSeconds
+        ?.let { Instant.ofEpochSecond(it).atZone(MarketClock.KENYA).format(FinancialShortDateFormat) }
         ?: "--"
 
 private fun formatResultDate(details: StockDetails): String {
@@ -1062,6 +1306,9 @@ private fun formatResultDate(details: StockDetails): String {
     val quarter = details.nextEarningsQuarterLabel
     return if (date != "--" && !quarter.isNullOrBlank()) "$date ($quarter)" else date
 }
+
+private fun formatResultDateShort(details: StockDetails): String =
+    formatFinancialShortDate(details.nextEarningsEpochSeconds)
 
 private fun formatPercentOne(value: Double?): String =
     value?.let { "%.1f%%".format(it) } ?: "--"
@@ -1345,7 +1592,7 @@ private fun PositionMetricCard(
     valueColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface
 ) {
     Surface(
-        modifier = modifier.heightIn(min = 70.dp),
+        modifier = modifier.height(76.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f),
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
@@ -1382,11 +1629,11 @@ private fun LotCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(12.dp)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.16f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(
