@@ -9,10 +9,19 @@ import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
+import com.stockwatchdog.app.data.prefs.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 object FirebaseServices {
+    const val TOPIC_PERSONAL_ALERTS = "stockwatchdog_personal_alerts"
+    const val TOPIC_MARKET_STATUS = "stockwatchdog_market_status"
+
     private const val TAG = "FirebaseServices"
     private const val REMOTE_CONFIG_FETCH_SECONDS = 12L * 60L * 60L
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun configure(context: Context) {
         runCatching {
@@ -30,7 +39,7 @@ object FirebaseServices {
             )
 
             configureRemoteConfig(crashlytics)
-            configureMessaging(crashlytics)
+            refreshMessaging(context)
         }.onFailure {
             Log.w(TAG, "Firebase startup skipped: ${it.message}")
         }
@@ -63,14 +72,58 @@ object FirebaseServices {
             }
     }
 
-    private fun configureMessaging(crashlytics: FirebaseCrashlytics) {
-        FirebaseMessaging.getInstance().token
+    fun refreshMessaging(context: Context) {
+        val appContext = context.applicationContext
+        val repo = SettingsRepository(appContext)
+        val crashlytics = FirebaseCrashlytics.getInstance()
+        val messaging = FirebaseMessaging.getInstance().apply {
+            isAutoInitEnabled = true
+        }
+
+        messaging.token
             .addOnSuccessListener {
+                scope.launch {
+                    repo.saveFirebaseMessagingToken(it)
+                }
                 crashlytics.setCustomKey("fcm_token_ready", true)
+                crashlytics.setCustomKey("fcm_token_length", it.length)
             }
             .addOnFailureListener {
                 crashlytics.setCustomKey("fcm_token_ready", false)
+                scope.launch {
+                    repo.setFirebaseMessagingTopicsReady(false, it.message ?: "Token unavailable")
+                }
                 Log.w(TAG, "FCM token unavailable: ${it.message}")
             }
+
+        subscribeToTopics(messaging, repo, crashlytics)
+    }
+
+    private fun subscribeToTopics(
+        messaging: FirebaseMessaging,
+        repo: SettingsRepository,
+        crashlytics: FirebaseCrashlytics
+    ) {
+        val topics = listOf(TOPIC_PERSONAL_ALERTS, TOPIC_MARKET_STATUS)
+        var remaining = topics.size
+        var failed = false
+
+        topics.forEach { topic ->
+            messaging.subscribeToTopic(topic)
+                .addOnSuccessListener {
+                    remaining -= 1
+                    if (remaining == 0 && !failed) {
+                        crashlytics.setCustomKey("fcm_topics_ready", true)
+                        scope.launch { repo.setFirebaseMessagingTopicsReady(true) }
+                    }
+                }
+                .addOnFailureListener {
+                    failed = true
+                    crashlytics.setCustomKey("fcm_topics_ready", false)
+                    val error = "Topic $topic: ${it.message ?: "failed"}"
+                    scope.launch { repo.setFirebaseMessagingTopicsReady(false, error) }
+                    Log.w(TAG, "FCM topic subscription failed: $error")
+                }
+        }
     }
 }

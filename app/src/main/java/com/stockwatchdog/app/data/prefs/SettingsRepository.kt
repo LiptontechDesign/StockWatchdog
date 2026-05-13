@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.stockwatchdog.app.BuildConfig
@@ -41,7 +42,13 @@ data class UserSettings(
      * Global default: only notify while NYSE is open. Individual alerts
      * can override via AlertEntity.marketHoursOnly.
      */
-    val marketHoursOnly: Boolean = false
+    val marketHoursOnly: Boolean = false,
+    val firebasePushEnabled: Boolean = true,
+    val firebaseMessagingToken: String = "",
+    val firebaseMessagingTokenUpdatedAtMillis: Long = 0L,
+    val firebaseMessagingTopicsReady: Boolean = false,
+    val firebaseMessagingLastError: String = "",
+    val firebaseLastMessageAtMillis: Long = 0L
 ) {
     /**
      * Key for a specific provider. Only meaningful when the user has forced
@@ -76,6 +83,12 @@ class SettingsRepository(private val context: Context) {
         val QUIET_HOURS_START = intPreferencesKey("quiet_hours_start")
         val QUIET_HOURS_END = intPreferencesKey("quiet_hours_end")
         val MARKET_HOURS_ONLY = booleanPreferencesKey("market_hours_only")
+        val FIREBASE_PUSH_ENABLED = booleanPreferencesKey("firebase_push_enabled")
+        val FIREBASE_MESSAGING_TOKEN = stringPreferencesKey("firebase_messaging_token")
+        val FIREBASE_MESSAGING_TOKEN_UPDATED = longPreferencesKey("firebase_messaging_token_updated")
+        val FIREBASE_MESSAGING_TOPICS_READY = booleanPreferencesKey("firebase_messaging_topics_ready")
+        val FIREBASE_MESSAGING_LAST_ERROR = stringPreferencesKey("firebase_messaging_last_error")
+        val FIREBASE_LAST_MESSAGE_AT = longPreferencesKey("firebase_last_message_at")
     }
 
     val settings: Flow<UserSettings> = context.dataStore.data.map { prefs ->
@@ -92,7 +105,13 @@ class SettingsRepository(private val context: Context) {
             quietHoursEnabled = prefs[Keys.QUIET_HOURS_ENABLED] ?: false,
             quietHoursStartMinutes = prefs[Keys.QUIET_HOURS_START] ?: (22 * 60),
             quietHoursEndMinutes = prefs[Keys.QUIET_HOURS_END] ?: (7 * 60),
-            marketHoursOnly = prefs[Keys.MARKET_HOURS_ONLY] ?: false
+            marketHoursOnly = prefs[Keys.MARKET_HOURS_ONLY] ?: false,
+            firebasePushEnabled = prefs[Keys.FIREBASE_PUSH_ENABLED] ?: true,
+            firebaseMessagingToken = prefs[Keys.FIREBASE_MESSAGING_TOKEN] ?: "",
+            firebaseMessagingTokenUpdatedAtMillis = prefs[Keys.FIREBASE_MESSAGING_TOKEN_UPDATED] ?: 0L,
+            firebaseMessagingTopicsReady = prefs[Keys.FIREBASE_MESSAGING_TOPICS_READY] ?: false,
+            firebaseMessagingLastError = prefs[Keys.FIREBASE_MESSAGING_LAST_ERROR] ?: "",
+            firebaseLastMessageAtMillis = prefs[Keys.FIREBASE_LAST_MESSAGE_AT] ?: 0L
         )
     }
 
@@ -134,6 +153,25 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setMarketHoursOnly(enabled: Boolean) =
         context.dataStore.edit { it[Keys.MARKET_HOURS_ONLY] = enabled }
+
+    suspend fun setFirebasePushEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.FIREBASE_PUSH_ENABLED] = enabled }
+
+    suspend fun saveFirebaseMessagingToken(token: String, updatedAtMillis: Long = System.currentTimeMillis()) =
+        context.dataStore.edit {
+            it[Keys.FIREBASE_MESSAGING_TOKEN] = token
+            it[Keys.FIREBASE_MESSAGING_TOKEN_UPDATED] = updatedAtMillis
+            it[Keys.FIREBASE_MESSAGING_LAST_ERROR] = ""
+        }
+
+    suspend fun setFirebaseMessagingTopicsReady(ready: Boolean, error: String = "") =
+        context.dataStore.edit {
+            it[Keys.FIREBASE_MESSAGING_TOPICS_READY] = ready
+            it[Keys.FIREBASE_MESSAGING_LAST_ERROR] = error.take(180)
+        }
+
+    suspend fun setFirebaseLastMessageAt(millis: Long = System.currentTimeMillis()) =
+        context.dataStore.edit { it[Keys.FIREBASE_LAST_MESSAGE_AT] = millis }
 
     private fun runCatchingProvider(raw: String): ApiProvider? =
         runCatching { ApiProvider.valueOf(raw) }.getOrNull()

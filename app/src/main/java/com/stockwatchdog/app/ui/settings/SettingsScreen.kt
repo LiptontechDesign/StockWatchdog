@@ -1,5 +1,9 @@
 package com.stockwatchdog.app.ui.settings
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,13 +38,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.stockwatchdog.app.data.prefs.ApiProvider
 import com.stockwatchdog.app.data.prefs.ThemeMode
+import com.stockwatchdog.app.data.prefs.UserSettings
 import com.stockwatchdog.app.di.AppContainer
+import com.stockwatchdog.app.util.MarketClock
+import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +62,7 @@ fun SettingsScreen(container: AppContainer) {
         }
     )
     val s by vm.state.collectAsStateWithLifecycle()
+    val phoneNotificationsAllowed = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
     var editingTwelve by rememberSaveable { mutableStateOf(false) }
     var editingAlpha by rememberSaveable { mutableStateOf(false) }
     var editingFinnhub by rememberSaveable { mutableStateOf(false) }
@@ -340,6 +351,15 @@ fun SettingsScreen(container: AppContainer) {
                     }
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            FirebasePushSetting(
+                settings = s,
+                phoneNotificationsAllowed = phoneNotificationsAllowed,
+                onEnabledChange = { vm.setFirebasePushEnabled(it) },
+                onRefresh = { vm.refreshFirebasePush() },
+                onTest = { vm.sendTestNotification() },
+                onOpenPhoneSettings = { openNotificationSettings(ctx) }
+            )
 
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
@@ -379,6 +399,81 @@ fun SettingsScreen(container: AppContainer) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun FirebasePushSetting(
+    settings: UserSettings,
+    phoneNotificationsAllowed: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onRefresh: () -> Unit,
+    onTest: () -> Unit,
+    onOpenPhoneSettings: () -> Unit
+) {
+    val ready = settings.notificationsEnabled &&
+        settings.firebasePushEnabled &&
+        phoneNotificationsAllowed &&
+        settings.firebaseMessagingToken.isNotBlank() &&
+        settings.firebaseMessagingTopicsReady
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Firebase cloud push")
+                Text(
+                    when {
+                        !settings.notificationsEnabled -> "App alert switch is off"
+                        !settings.firebasePushEnabled -> "Cloud push is off"
+                        !phoneNotificationsAllowed -> "Phone notification permission is off"
+                        settings.firebaseMessagingToken.isBlank() -> "Connecting to Firebase"
+                        !settings.firebaseMessagingTopicsReady -> "Token ready, topic subscription pending"
+                        else -> "Ready for closed-app push messages"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = settings.firebasePushEnabled,
+                onCheckedChange = onEnabledChange
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            buildString {
+                append("Token: ")
+                append(settings.firebaseMessagingToken.takeLast(10).takeIf { it.isNotBlank() } ?: "--")
+                append(" | Topics: ")
+                append(if (settings.firebaseMessagingTopicsReady) "ready" else "pending")
+                append(" | Last push: ")
+                append(formatFirebaseTime(settings.firebaseLastMessageAtMillis))
+                if (settings.firebaseMessagingLastError.isNotBlank()) {
+                    append("\n")
+                    append(settings.firebaseMessagingLastError)
+                }
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
+            Button(onClick = onTest) {
+                Text("Test notification")
+            }
+            TextButton(onClick = onRefresh) {
+                Text("Refresh push")
+            }
+            TextButton(onClick = onOpenPhoneSettings) {
+                Text("Phone settings")
+            }
         }
     }
 }
@@ -508,4 +603,32 @@ private fun SectionHeader(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 8.dp)
     )
+}
+
+private val FirebaseStatusTimeFormat: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("MMM d HH:mm", Locale.US)
+
+private fun formatFirebaseTime(millis: Long): String =
+    if (millis <= 0L) {
+        "never"
+    } else {
+        Instant.ofEpochMilli(millis)
+            .atZone(MarketClock.KENYA)
+            .format(FirebaseStatusTimeFormat) + " EAT"
+    }
+
+private fun openNotificationSettings(context: Context) {
+    val appSettings = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+        .setData(Uri.parse("package:${context.packageName}"))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    runCatching {
+        context.startActivity(appSettings)
+    }.onFailure {
+        context.startActivity(fallback)
+    }
 }

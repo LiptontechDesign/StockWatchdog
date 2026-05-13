@@ -38,11 +38,12 @@ object NotificationHelper {
         notificationId: Int,
         symbol: String,
         title: String,
-        body: String
+        body: String,
+        route: String? = null
     ) {
         ensureChannel(context)
 
-        val deepLink = Uri.parse("stockwatchdog://ticker/$symbol")
+        val deepLink = deepLinkFor(symbol = symbol, route = route)
         val intent = Intent(Intent.ACTION_VIEW, deepLink, context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -60,6 +61,8 @@ object NotificationHelper {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
@@ -71,6 +74,28 @@ object NotificationHelper {
             } catch (_: SecurityException) {
                 // POST_NOTIFICATIONS not granted yet; silently skip.
             }
+        }
+    }
+
+    private fun deepLinkFor(symbol: String, route: String?): Uri {
+        val normalizedRoute = route
+            ?.trim()
+            ?.lowercase()
+            ?.removePrefix("stockwatchdog://")
+
+        return when {
+            normalizedRoute == "alerts" -> Uri.parse("stockwatchdog://alerts")
+            normalizedRoute == "settings" -> Uri.parse("stockwatchdog://settings")
+            normalizedRoute == "dip" -> Uri.parse("stockwatchdog://dip")
+            normalizedRoute == "portfolio" -> Uri.parse("stockwatchdog://portfolio")
+            normalizedRoute == "watchlist" -> Uri.parse("stockwatchdog://watchlist")
+            normalizedRoute?.startsWith("ticker/") == true -> {
+                Uri.parse("stockwatchdog://$normalizedRoute")
+            }
+            symbol.isNotBlank() && symbol.lowercase() != "watchlist" -> {
+                Uri.parse("stockwatchdog://ticker/${symbol.trim().uppercase()}")
+            }
+            else -> Uri.parse("stockwatchdog://watchlist")
         }
     }
 }

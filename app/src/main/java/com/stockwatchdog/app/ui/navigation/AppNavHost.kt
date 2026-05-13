@@ -51,15 +51,15 @@ object Routes {
 @Composable
 fun AppNavHost(
     container: AppContainer,
-    initialDeepLinkSymbol: String?,
+    initialDeepLinkRoute: String?,
     onDeepLinkConsumed: () -> Unit
 ) {
     val navController = rememberNavController()
 
-    LaunchedEffect(initialDeepLinkSymbol) {
-        val sym = initialDeepLinkSymbol
-        if (!sym.isNullOrBlank()) {
-            navController.navigate(Routes.detail(sym))
+    LaunchedEffect(initialDeepLinkRoute) {
+        val route = initialDeepLinkRoute
+        if (!route.isNullOrBlank()) {
+            navController.navigate(route)
             onDeepLinkConsumed()
         }
     }

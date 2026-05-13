@@ -7,6 +7,8 @@ import com.stockwatchdog.app.data.prefs.ApiProvider
 import com.stockwatchdog.app.data.prefs.SettingsRepository
 import com.stockwatchdog.app.data.prefs.ThemeMode
 import com.stockwatchdog.app.data.prefs.UserSettings
+import com.stockwatchdog.app.firebase.FirebaseServices
+import com.stockwatchdog.app.notifications.NotificationHelper
 import com.stockwatchdog.app.work.AlertWorkScheduler
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -55,4 +57,24 @@ class SettingsViewModel(
 
     fun setMarketHoursOnly(enabled: Boolean) =
         viewModelScope.launch { repo.setMarketHoursOnly(enabled) }
+
+    fun setFirebasePushEnabled(enabled: Boolean) = viewModelScope.launch {
+        repo.setFirebasePushEnabled(enabled)
+        if (enabled) FirebaseServices.refreshMessaging(appContext)
+    }
+
+    fun refreshFirebasePush() {
+        FirebaseServices.refreshMessaging(appContext)
+    }
+
+    fun sendTestNotification() {
+        NotificationHelper.show(
+            context = appContext,
+            notificationId = (System.currentTimeMillis() and 0x7fffffff).toInt(),
+            symbol = "",
+            title = "Stock Watchdog test",
+            body = "Notifications are working. Firebase push can use this same channel.",
+            route = "settings"
+        )
+    }
 }

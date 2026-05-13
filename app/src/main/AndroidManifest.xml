@@ -17,6 +17,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.StockWatchdog">
 
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/firebase_default_notification_channel_id" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -33,6 +40,11 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="stockwatchdog" android:host="ticker" />
+                <data android:scheme="stockwatchdog" android:host="watchlist" />
+                <data android:scheme="stockwatchdog" android:host="portfolio" />
+                <data android:scheme="stockwatchdog" android:host="dip" />
+                <data android:scheme="stockwatchdog" android:host="alerts" />
+                <data android:scheme="stockwatchdog" android:host="settings" />
             </intent-filter>
         </activity>
 
