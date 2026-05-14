@@ -43,6 +43,27 @@ enum class DipFilterMode(val label: String) {
     WATCHING("Watching")
 }
 
+data class DipGroupFilterOption(
+    val key: String,
+    val label: String,
+    val count: Int
+) {
+    companion object {
+        const val ALL_KEY = "all"
+        const val STOCKS_KEY = "asset:stock"
+        const val ETFS_KEY = "asset:etf"
+        private const val SECTOR_PREFIX = "sector:"
+
+        fun all(count: Int) = DipGroupFilterOption(ALL_KEY, "All", count)
+        fun stocks(count: Int) = DipGroupFilterOption(STOCKS_KEY, "Stocks", count)
+        fun etfs(count: Int) = DipGroupFilterOption(ETFS_KEY, "ETFs", count)
+        fun sector(label: String, count: Int) =
+            DipGroupFilterOption(SECTOR_PREFIX + label.filterKeyPart(), label, count)
+
+        fun sectorKey(label: String) = SECTOR_PREFIX + label.filterKeyPart()
+    }
+}
+
 data class DipRow(
     val entity: DipTrackerEntity,
     val currentPrice: Double? = null,
@@ -51,6 +72,9 @@ data class DipRow(
     val name: String? = null,
     val status: ZoneStatus = ZoneStatus.NO_DATA,
     val distanceToBuyZonePct: Double? = null,
+    val assetType: String? = null,
+    val sector: String? = null,
+    val industry: String? = null,
     /** Rich Yahoo quoteSummary details (earnings, target, 52w, MA200, volume). */
     val details: StockDetails? = null
 )
@@ -65,6 +89,8 @@ data class DipTrackerUiState(
     val lastUpdatedAtMs: Long? = null,
     val sortMode: DipSortMode = DipSortMode.URGENCY,
     val filterMode: DipFilterMode = DipFilterMode.ALL,
+    val groupFilters: List<DipGroupFilterOption> = listOf(DipGroupFilterOption.all(0)),
+    val selectedGroupFilterKey: String = DipGroupFilterOption.ALL_KEY,
     val groupByStatus: Boolean = true,
     val dialogOpen: Boolean = false,
     val dialogEditingId: Long? = null,
@@ -113,6 +139,7 @@ class DipTrackerViewModel(
         forceRefresh: Boolean
     ) {
         _ui.update { it.copy(isRefreshing = true) }
+        val metadataUpdates = mutableListOf<DipTrackerEntity>()
         val rows = entities.map { entity ->
             val result = repo.getQuote(entity.symbol, forceRefresh = forceRefresh)
             val quote = (result as? DataResult.Success)?.value
@@ -125,40 +152,55 @@ class DipTrackerViewModel(
             val details = runCatching {
                 detailsRepo.get(entity.symbol, forceRefresh = forceRefresh)
             }.getOrNull()
+            val rowEntity = entity.withResolvedMetadata(details)
+            if (rowEntity != entity) metadataUpdates += rowEntity
             DipRow(
-                entity = entity,
+                entity = rowEntity,
                 currentPrice = price,
                 previousClose = quote?.previousClose,
                 percentChange = quote?.percentChange,
                 name = name,
                 status = status,
                 distanceToBuyZonePct = distPct,
+                assetType = rowEntity.assetType,
+                sector = rowEntity.sector,
+                industry = rowEntity.industry,
                 details = details
             )
         }
         rawRows = rows
         val anyData = rows.any { it.status != ZoneStatus.NO_DATA }
         _ui.update { current ->
+            val groupFilters = buildGroupFilters(rows)
+            val selectedGroupKey = current.selectedGroupFilterKey
+                .takeIf { key -> groupFilters.any { it.key == key } }
+                ?: DipGroupFilterOption.ALL_KEY
             current.copy(
-                rows = applyFilterSort(rows, current.sortMode, current.filterMode),
+                rows = applyFilterSort(rows, current.sortMode, current.filterMode, selectedGroupKey),
                 allRowsCount = rows.size,
                 readyCount = rows.count { it.status == ZoneStatus.STRONG_BUY || it.status == ZoneStatus.IN_BUY_ZONE },
                 nearCount = rows.count { it.status == ZoneStatus.NEAR_ZONE },
                 watchingCount = rows.count {
                     it.status == ZoneStatus.ABOVE_ZONE || it.status == ZoneStatus.BELOW_ZONE || it.status == ZoneStatus.NO_DATA
                 },
+                groupFilters = groupFilters,
+                selectedGroupFilterKey = selectedGroupKey,
                 isRefreshing = false,
                 lastUpdatedAtMs = if (anyData) System.currentTimeMillis() else current.lastUpdatedAtMs
             )
+        }
+        metadataUpdates.forEach { updated ->
+            runCatching { dao.update(updated) }
         }
     }
 
     private fun applyFilterSort(
         rows: List<DipRow>,
         sort: DipSortMode,
-        filter: DipFilterMode
+        filter: DipFilterMode,
+        groupFilterKey: String
     ): List<DipRow> {
-        val filtered = when (filter) {
+        val statusFiltered = when (filter) {
             DipFilterMode.ALL -> rows
             DipFilterMode.READY -> rows.filter {
                 it.status == ZoneStatus.STRONG_BUY || it.status == ZoneStatus.IN_BUY_ZONE
@@ -170,6 +212,7 @@ class DipTrackerViewModel(
                     it.status == ZoneStatus.NO_DATA
             }
         }
+        val filtered = applyGroupFilter(statusFiltered, groupFilterKey)
         return when (sort) {
             DipSortMode.URGENCY -> filtered.sortedWith(
                 compareBy<DipRow> { statusRank(it.status) }
@@ -186,7 +229,7 @@ class DipTrackerViewModel(
         _ui.update { current ->
             current.copy(
                 sortMode = mode,
-                rows = applyFilterSort(rawRows, mode, current.filterMode)
+                rows = applyFilterSort(rawRows, mode, current.filterMode, current.selectedGroupFilterKey)
             )
         }
     }
@@ -195,7 +238,18 @@ class DipTrackerViewModel(
         _ui.update { current ->
             current.copy(
                 filterMode = mode,
-                rows = applyFilterSort(rawRows, current.sortMode, mode)
+                rows = applyFilterSort(rawRows, current.sortMode, mode, current.selectedGroupFilterKey)
+            )
+        }
+    }
+
+    fun onGroupFilterChange(key: String) {
+        _ui.update { current ->
+            val safeKey = key.takeIf { requested -> current.groupFilters.any { it.key == requested } }
+                ?: DipGroupFilterOption.ALL_KEY
+            current.copy(
+                selectedGroupFilterKey = safeKey,
+                rows = applyFilterSort(rawRows, current.sortMode, current.filterMode, safeKey)
             )
         }
     }
@@ -203,6 +257,35 @@ class DipTrackerViewModel(
     fun toggleGroupByStatus() {
         _ui.update { it.copy(groupByStatus = !it.groupByStatus) }
     }
+
+    private fun buildGroupFilters(rows: List<DipRow>): List<DipGroupFilterOption> {
+        val stockCount = rows.count { it.assetType.isStockLike() }
+        val etfCount = rows.count { it.assetType.isEtfLike() }
+        val sectors = rows
+            .filter { it.assetType.isStockLike() }
+            .mapNotNull { it.sector.normalizeSector() }
+            .groupingBy { it }
+            .eachCount()
+
+        return buildList {
+            add(DipGroupFilterOption.all(rows.size))
+            if (stockCount > 0) add(DipGroupFilterOption.stocks(stockCount))
+            if (etfCount > 0) add(DipGroupFilterOption.etfs(etfCount))
+            sectors.entries
+                .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+                .forEach { (sector, count) -> add(DipGroupFilterOption.sector(sector, count)) }
+        }
+    }
+
+    private fun applyGroupFilter(rows: List<DipRow>, key: String): List<DipRow> =
+        when (key) {
+            DipGroupFilterOption.ALL_KEY -> rows
+            DipGroupFilterOption.STOCKS_KEY -> rows.filter { it.assetType.isStockLike() }
+            DipGroupFilterOption.ETFS_KEY -> rows.filter { it.assetType.isEtfLike() }
+            else -> rows.filter { row ->
+                row.sector?.let { DipGroupFilterOption.sectorKey(it) } == key
+            }
+        }
 
     private fun statusRank(status: ZoneStatus): Int = when (status) {
         ZoneStatus.STRONG_BUY -> 0
@@ -271,7 +354,7 @@ class DipTrackerViewModel(
                     buyZoneHighDraft = trimTrailingZeros(entity.buyZoneHigh),
                     strongBuyDraft = entity.strongBuyBelow?.let(::trimTrailingZeros) ?: "",
                     notesDraft = entity.notes ?: "",
-                    selectedSymbol = SymbolMatch(entity.symbol, quote?.name, null, null),
+                    selectedSymbol = SymbolMatch(entity.symbol, quote?.name, null, entity.assetType),
                     selectedQuote = quote
                 )
             }
@@ -377,6 +460,7 @@ class DipTrackerViewModel(
         val strongBuy = s.strongBuyDraft.toDoubleOrNull()
         if (strongBuy != null && strongBuy > low) return
         val notes = s.notesDraft.trim().ifBlank { null }
+        val selectedAssetType = s.selectedSymbol?.type.normalizeAssetType()
 
         viewModelScope.launch {
             val editId = s.dialogEditingId
@@ -387,19 +471,30 @@ class DipTrackerViewModel(
                         buyZoneLow = low,
                         buyZoneHigh = high,
                         strongBuyBelow = strongBuy,
-                        notes = notes
+                        notes = notes,
+                        assetType = selectedAssetType,
+                        metadataUpdatedAtMillis = selectedAssetType?.let { System.currentTimeMillis() }
                     )
                 )
             } else {
                 val existing = latestEntities.firstOrNull { it.id == editId }
                 if (existing != null) {
+                    val sameSymbol = existing.symbol.equals(symbol, ignoreCase = true)
                     dao.update(
                         existing.copy(
                             symbol = symbol,
                             buyZoneLow = low,
                             buyZoneHigh = high,
                             strongBuyBelow = strongBuy,
-                            notes = notes
+                            notes = notes,
+                            assetType = selectedAssetType ?: existing.assetType.takeIf { sameSymbol },
+                            sector = existing.sector.takeIf { sameSymbol },
+                            industry = existing.industry.takeIf { sameSymbol },
+                            metadataUpdatedAtMillis = if (sameSymbol) {
+                                existing.metadataUpdatedAtMillis
+                            } else {
+                                selectedAssetType?.let { System.currentTimeMillis() }
+                            }
                         )
                     )
                 }
@@ -434,3 +529,75 @@ class DipTrackerViewModel(
         return s.trimEnd('0').trimEnd('.')
     }
 }
+
+private fun DipTrackerEntity.withResolvedMetadata(details: StockDetails?): DipTrackerEntity {
+    val resolvedSector = details?.sector.normalizeSector() ?: sector.normalizeSector()
+    val resolvedIndustry = details?.industry.normalizeMetadataText() ?: industry.normalizeMetadataText()
+    val resolvedAssetType = details?.assetType.normalizeAssetType()
+        ?: assetType.normalizeAssetType()
+        ?: resolvedSector.assetTypeFromSector()
+
+    if (
+        assetType == resolvedAssetType &&
+        sector == resolvedSector &&
+        industry == resolvedIndustry
+    ) {
+        return this
+    }
+
+    return copy(
+        assetType = resolvedAssetType,
+        sector = resolvedSector,
+        industry = resolvedIndustry,
+        metadataUpdatedAtMillis = System.currentTimeMillis()
+    )
+}
+
+private fun String?.normalizeAssetType(): String? {
+    val text = normalizeMetadataText() ?: return null
+    val lower = text.lowercase(Locale.US)
+    return when {
+        "etf" in lower || "exchange traded" in lower -> "ETF"
+        "stock" in lower || "equity" in lower || "common" in lower -> "Stock"
+        "index" in lower -> "Index"
+        "fund" in lower -> "Fund"
+        else -> text
+    }
+}
+
+private fun String?.normalizeSector(): String? =
+    normalizeMetadataText()?.split(" ", "-", "/")?.joinToString(" ") { word ->
+        if (word.length <= 3 && word.all { it.isUpperCase() }) {
+            word
+        } else {
+            word.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) }
+        }
+    }
+
+private fun String?.normalizeMetadataText(): String? =
+    this
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.takeUnless { it.equals("none", ignoreCase = true) }
+        ?.takeUnless { it.equals("null", ignoreCase = true) }
+        ?.takeUnless { it.equals("n/a", ignoreCase = true) }
+        ?.takeUnless { it == "--" || it == "-" }
+
+private fun String?.assetTypeFromSector(): String? =
+    when {
+        normalizeMetadataText()?.contains("ETF", ignoreCase = true) == true -> "ETF"
+        normalizeMetadataText() != null -> "Stock"
+        else -> null
+    }
+
+private fun String?.isEtfLike(): Boolean =
+    normalizeAssetType()?.equals("ETF", ignoreCase = true) == true
+
+private fun String?.isStockLike(): Boolean =
+    normalizeAssetType()?.equals("Stock", ignoreCase = true) == true
+
+private fun String.filterKeyPart(): String =
+    trim()
+        .lowercase(Locale.US)
+        .replace(Regex("[^a-z0-9]+"), "-")
+        .trim('-')

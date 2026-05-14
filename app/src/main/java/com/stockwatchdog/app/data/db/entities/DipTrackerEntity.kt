@@ -15,5 +15,9 @@ data class DipTrackerEntity(
     val buyZoneHigh: Double,
     val strongBuyBelow: Double? = null,
     val notes: String? = null,
-    val addedAtMillis: Long = System.currentTimeMillis()
+    val addedAtMillis: Long = System.currentTimeMillis(),
+    val assetType: String? = null,
+    val sector: String? = null,
+    val industry: String? = null,
+    val metadataUpdatedAtMillis: Long? = null
 )

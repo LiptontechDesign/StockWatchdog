@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -82,6 +83,8 @@ import com.stockwatchdog.app.di.AppContainer
 import com.stockwatchdog.app.ui.components.changeColor
 import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.components.formatSignedPercent
+import com.stockwatchdog.app.ui.diptracker.DipFilterMode
+import com.stockwatchdog.app.ui.diptracker.DipGroupFilterOption
 import com.stockwatchdog.app.ui.diptracker.DipRow
 import com.stockwatchdog.app.ui.diptracker.DipTrackerViewModel
 import com.stockwatchdog.app.ui.diptracker.ZoneStatus
@@ -187,18 +190,36 @@ fun DipScreen(
         ) {
             item {
                 DipHeader(
-                    trackedCount = state.rows.size,
                     isRefreshing = state.isRefreshing,
                     onAdd = { vm.openAddDialog() },
                     onRefresh = { vm.refresh() }
                 )
             }
-            if (state.rows.isNotEmpty()) {
-                item { TrackerSummaryCard(state.rows) }
+            if (state.allRowsCount > 0) {
+                item {
+                    DipStatusFilterRow(
+                        ready = state.readyCount,
+                        near = state.nearCount,
+                        total = state.allRowsCount,
+                        selectedMode = state.filterMode,
+                        onSelect = vm::onFilterModeChange
+                    )
+                }
+                if (state.groupFilters.size > 1) {
+                    item {
+                        DipGroupFilterRow(
+                            options = state.groupFilters,
+                            selectedKey = state.selectedGroupFilterKey,
+                            onSelect = vm::onGroupFilterChange
+                        )
+                    }
+                }
             }
 
-            if (state.rows.isEmpty() && !state.isRefreshing) {
+            if (state.allRowsCount == 0 && state.rows.isEmpty() && !state.isRefreshing) {
                 item { EmptyDipState(onAdd = { vm.openAddDialog() }) }
+            } else if (state.allRowsCount > 0 && state.rows.isEmpty() && !state.isRefreshing) {
+                item { EmptyGroupFilterState() }
             } else if (state.rows.isEmpty() && state.isRefreshing) {
                 item {
                     Box(
@@ -279,7 +300,6 @@ fun DipScreen(
 
 @Composable
 private fun DipHeader(
-    trackedCount: Int,
     isRefreshing: Boolean,
     onAdd: () -> Unit,
     onRefresh: () -> Unit
@@ -296,12 +316,6 @@ private fun DipHeader(
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onBackground
-            )
-            Text(
-                "$trackedCount stock${if (trackedCount == 1) "" else "s"} tracked",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -454,62 +468,176 @@ private fun MarketHourRow(status: MarketClock.MarketStatus) {
 // ════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun TrackerSummaryCard(rows: List<DipRow>) {
-    val ready = rows.count { it.status == ZoneStatus.STRONG_BUY || it.status == ZoneStatus.IN_BUY_ZONE }
-    val near = rows.count { it.status == ZoneStatus.NEAR_ZONE }
-    val total = rows.size
-    val baseFill = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
-    val readyText = MaterialTheme.colorScheme.primary
-    val nearText = MaterialTheme.colorScheme.tertiary
-    val trackedText = MaterialTheme.colorScheme.onSurfaceVariant
-
+private fun DipStatusFilterRow(
+    ready: Int,
+    near: Int,
+    total: Int,
+    selectedMode: DipFilterMode,
+    onSelect: (DipFilterMode) -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 5.dp),
+            .padding(bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        SummaryPill("$ready", "Ready", baseFill, readyText, Modifier.weight(1f))
-        SummaryPill("$near", "Near", baseFill, nearText, Modifier.weight(1f))
-        SummaryPill("$total", "Tracked", baseFill, trackedText, Modifier.weight(1f))
+        DipStatusChip(
+            label = "Ready",
+            count = ready,
+            color = MaterialTheme.colorScheme.primary,
+            selected = selectedMode == DipFilterMode.READY,
+            onClick = { onSelect(DipFilterMode.READY) },
+            modifier = Modifier.weight(1f)
+        )
+        DipStatusChip(
+            label = "Near",
+            count = near,
+            color = MaterialTheme.colorScheme.tertiary,
+            selected = selectedMode == DipFilterMode.NEAR,
+            onClick = { onSelect(DipFilterMode.NEAR) },
+            modifier = Modifier.weight(1f)
+        )
+        DipStatusChip(
+            label = "Tracked",
+            count = total,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            selected = selectedMode == DipFilterMode.ALL,
+            onClick = { onSelect(DipFilterMode.ALL) },
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
 @Composable
-private fun SummaryPill(
-    value: String,
+private fun DipStatusChip(
     label: String,
-    fill: Color,
-    textColor: Color,
+    count: Int,
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val fill = if (selected) {
+        color.copy(alpha = 0.16f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    val borderColor = if (selected) color.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant
     Surface(
         modifier = modifier
-            .height(64.dp),
+            .height(44.dp)
+            .clickable(onClick = onClick),
         color = fill,
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, textColor.copy(alpha = 0.28f))
+        border = BorderStroke(1.dp, borderColor)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 6.dp, vertical = 9.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        Row(
+            modifier = Modifier.padding(horizontal = 9.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                value,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.ExtraBold,
-                color = textColor
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(color)
             )
+            Spacer(Modifier.width(6.dp))
             Text(
-                label.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
+                "$count",
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.ExtraBold,
-                color = textColor
+                color = color,
+                maxLines = 1
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+@Composable
+private fun DipGroupFilterRow(
+    options: List<DipGroupFilterOption>,
+    selectedKey: String,
+    onSelect: (String) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        items(options, key = { it.key }) { option ->
+            val selected = option.key == selectedKey
+            val fill = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
+            val textColor = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Surface(
+                modifier = Modifier
+                    .heightIn(min = 44.dp)
+                    .widthIn(min = 76.dp, max = 164.dp)
+                    .clickable { onSelect(option.key) },
+                color = fill,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
+                    } else {
+                        MaterialTheme.colorScheme.outlineVariant
+                    }
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "${option.label} (${option.count})",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyGroupFilterState() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Text(
+            "No dip setups match this filter.",
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
     }
 }
 

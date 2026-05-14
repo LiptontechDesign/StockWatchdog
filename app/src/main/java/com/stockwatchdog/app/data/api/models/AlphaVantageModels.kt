@@ -87,6 +87,9 @@ data class AlphaCandle(
 data class AlphaCompanyOverview(
     @SerialName("Symbol") val symbol: String? = null,
     @SerialName("Name") val name: String? = null,
+    @SerialName("AssetType") val assetType: String? = null,
+    @SerialName("Sector") val sector: String? = null,
+    @SerialName("Industry") val industry: String? = null,
     @SerialName("Description") val description: String? = null,
     @SerialName("EPS") val eps: String? = null,
     @SerialName("RevenueTTM") val revenueTtm: String? = null,

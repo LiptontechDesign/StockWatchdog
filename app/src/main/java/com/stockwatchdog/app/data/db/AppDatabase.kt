@@ -26,7 +26,7 @@ import com.stockwatchdog.app.data.db.entities.WatchlistItemEntity
         DipFinderResultEntity::class,
         DipFinderWatchlistEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -203,6 +203,16 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE alerts ADD COLUMN notes TEXT")
                 db.execSQL("ALTER TABLE alerts ADD COLUMN marketHoursOnly INTEGER")
                 db.execSQL("ALTER TABLE alerts ADD COLUMN lastPrice REAL")
+            }
+        }
+
+        /** v7 -> v8: cache Dip ticker grouping metadata for local filtering. */
+        val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE dip_tracker ADD COLUMN assetType TEXT")
+                db.execSQL("ALTER TABLE dip_tracker ADD COLUMN sector TEXT")
+                db.execSQL("ALTER TABLE dip_tracker ADD COLUMN industry TEXT")
+                db.execSQL("ALTER TABLE dip_tracker ADD COLUMN metadataUpdatedAtMillis INTEGER")
             }
         }
     }

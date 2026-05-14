@@ -72,6 +72,17 @@ data class FmpQuote(
 )
 
 @Serializable
+data class FmpProfile(
+    val symbol: String? = null,
+    val companyName: String? = null,
+    val sector: String? = null,
+    val industry: String? = null,
+    val exchange: String? = null,
+    val isEtf: Boolean? = null,
+    val isActivelyTrading: Boolean? = null
+)
+
+@Serializable
 data class FmpAnalystRecommendation(
     val symbol: String? = null,
     val date: String? = null,

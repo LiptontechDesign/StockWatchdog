@@ -39,7 +39,8 @@ data class YahooQuoteSummaryResult(
     val earnings: YahooEarnings? = null,
     val financialData: YahooFinancialData? = null,
     val summaryDetail: YahooSummaryDetail? = null,
-    val defaultKeyStatistics: YahooDefaultKeyStatistics? = null
+    val defaultKeyStatistics: YahooDefaultKeyStatistics? = null,
+    val assetProfile: YahooAssetProfile? = null
 )
 
 @Serializable
@@ -147,4 +148,10 @@ data class YahooDefaultKeyStatistics(
     val priceToBook: YahooRawNumber? = null,
     val enterpriseToRevenue: YahooRawNumber? = null,
     val enterpriseToEbitda: YahooRawNumber? = null
+)
+
+@Serializable
+data class YahooAssetProfile(
+    val sector: String? = null,
+    val industry: String? = null
 )

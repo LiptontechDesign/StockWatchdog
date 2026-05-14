@@ -11,6 +11,7 @@ import com.stockwatchdog.app.data.api.models.FmpBalanceSheet
 import com.stockwatchdog.app.data.api.models.FmpCashFlowStatement
 import com.stockwatchdog.app.data.api.models.FmpEarningsEvent
 import com.stockwatchdog.app.data.api.models.FmpIncomeStatement
+import com.stockwatchdog.app.data.api.models.FmpProfile
 import com.stockwatchdog.app.data.api.models.FmpQuote
 import com.stockwatchdog.app.data.api.models.YahooQuoteSummaryResult
 import com.stockwatchdog.app.data.prefs.SettingsRepository
@@ -134,8 +135,14 @@ class StockDetailsRepository(
             withRecommendation = withRecommendation.withDetailsFallback(fetchFmpRecommendation(s), s)
         }
 
-        val fresh = withRecommendation
-            .withDetailsFallback(fetchAlphaOverviewIfNeeded(s, withEarnings), s)
+        val withMetadata = if (withRecommendation == null || withRecommendation.needsMetadataFallback()) {
+            withRecommendation.withDetailsFallback(fetchFmpProfileDetails(s), s)
+        } else {
+            withRecommendation
+        }
+
+        val fresh = withMetadata
+            .withDetailsFallback(fetchAlphaOverviewIfNeeded(s, withMetadata), s)
             ?: return cachedOrNull(s)
 
         lock.withLock {
@@ -173,6 +180,7 @@ class StockDetailsRepository(
         const val FINNHUB_EARNINGS_KEY = "FINNHUB_EARNINGS"
         const val FINNHUB_RECOMMENDATION_KEY = "FINNHUB_RECOMMENDATION"
         const val FMP_RECOMMENDATION_KEY = "FMP_RECOMMENDATION"
+        const val FMP_PROFILE_KEY = "FMP_PROFILE"
         const val ALPHA_OVERVIEW_KEY = "ALPHA_OVERVIEW_DETAILS"
         val NAIROBI_ZONE: ZoneId = ZoneId.of("Africa/Nairobi")
         val FINNHUB_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
@@ -204,6 +212,9 @@ class StockDetailsRepository(
                 val quote = runCatching {
                     fmp.quote(symbol = symbol, apiKey = apiKey).firstOrNull()
                 }.getOrNull()
+                val profile = runCatching {
+                    fmp.profile(symbol = symbol, apiKey = apiKey).firstOrNull()
+                }.getOrNull()
 
                 val details = buildFmpDetails(
                     symbol = symbol,
@@ -211,7 +222,8 @@ class StockDetailsRepository(
                     income = income,
                     balance = balance.firstOrNull(),
                     cashFlow = cashFlow.firstOrNull(),
-                    quote = quote
+                    quote = quote,
+                    profile = profile
                 )
                 cooldown.clear(FMP_DETAILS_KEY)
                 details
@@ -446,11 +458,37 @@ class StockDetailsRepository(
         }
     }
 
+    private suspend fun fetchFmpProfileDetails(symbol: String): StockDetails? {
+        if (cooldown.isCoolingDown(FMP_PROFILE_KEY)) return null
+        val apiKey = settings.settings.first().fmpKey
+        if (apiKey.isBlank()) return null
+
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                fmp.profile(symbol = symbol, apiKey = apiKey)
+                    .firstOrNull()
+                    ?.toDetails(symbol)
+            }.onSuccess {
+                cooldown.clear(FMP_PROFILE_KEY)
+            }.onFailure { failure ->
+                val code = (failure as? HttpException)?.code()
+                val msg = failure.message.orEmpty().lowercase()
+                when {
+                    code == 401 || code == 402 || code == 403 ->
+                        cooldown.trip(FMP_PROFILE_KEY, ProviderCooldown.PER_DAY_CAP_MS)
+                    code == 429 || "rate" in msg || "limit" in msg ->
+                        cooldown.trip(FMP_PROFILE_KEY, ProviderCooldown.PER_MINUTE_CAP_MS)
+                    else -> cooldown.trip(FMP_PROFILE_KEY, ProviderCooldown.PER_MINUTE_CAP_MS)
+                }
+            }.getOrNull()
+        }
+    }
+
     private suspend fun fetchAlphaOverviewIfNeeded(
         symbol: String,
         current: StockDetails?
     ): StockDetails? {
-        if (current != null && !current.needsFundamentalFallback()) return null
+        if (current != null && !current.needsFundamentalFallback() && !current.needsMetadataFallback()) return null
         if (cooldown.isCoolingDown(ALPHA_OVERVIEW_KEY)) return null
         val apiKey = settings.settings.first().alphaVantageKey
         if (apiKey.isBlank()) return null
@@ -485,6 +523,9 @@ class StockDetailsRepository(
             financialDataSource = mergeDataSources(financialDataSource, fallback.financialDataSource),
             reportedCurrency = reportedCurrency ?: fallback.reportedCurrency,
             latestFinancialPeriod = latestFinancialPeriod ?: fallback.latestFinancialPeriod,
+            assetType = assetType ?: fallback.assetType,
+            sector = sector ?: fallback.sector,
+            industry = industry ?: fallback.industry,
             nextEarningsEpochSeconds = nextEarningsEpochSeconds ?: fallback.nextEarningsEpochSeconds,
             nextEarningsIsEstimate = nextEarningsIsEstimate ?: fallback.nextEarningsIsEstimate,
             nextEarningsQuarterLabel = nextEarningsQuarterLabel ?: fallback.nextEarningsQuarterLabel,
@@ -706,7 +747,8 @@ private fun buildFmpDetails(
     income: List<FmpIncomeStatement>,
     balance: FmpBalanceSheet?,
     cashFlow: FmpCashFlowStatement?,
-    quote: FmpQuote?
+    quote: FmpQuote?,
+    profile: FmpProfile?
 ): StockDetails? {
     val sortedIncome = income.sortedWith(
         compareByDescending<FmpIncomeStatement> { it.statementDate() ?: LocalDate.MIN }
@@ -754,6 +796,9 @@ private fun buildFmpDetails(
         financialDataSource = "FMP",
         reportedCurrency = latestIncome?.reportedCurrency ?: balance?.reportedCurrency ?: cashFlow?.reportedCurrency,
         latestFinancialPeriod = latestPeriod,
+        assetType = profile.assetTypeLabel(),
+        sector = profile?.sector.normalizeSectorName(),
+        industry = profile?.industry.normalizeMetadataText(),
         nextEarningsEpochSeconds = nextEvent?.second?.atStartOfDay(ZoneId.of("Africa/Nairobi"))?.toEpochSecond(),
         nextEarningsIsEstimate = nextEvent?.let { it.first.epsActual == null },
         lastEpsActual = lastEvent?.first?.epsActual,
@@ -898,6 +943,9 @@ data class StockDetails(
     val financialDataSource: String? = null,
     val reportedCurrency: String? = null,
     val latestFinancialPeriod: String? = null,
+    val assetType: String? = null,
+    val sector: String? = null,
+    val industry: String? = null,
     // Next earnings event
     val nextEarningsEpochSeconds: Long? = null,
     val nextEarningsIsEstimate: Boolean? = null,
@@ -1019,6 +1067,9 @@ data class StockDetails(
             trailingPe == null &&
             epsTtm == null
 
+    fun needsMetadataFallback(): Boolean =
+        assetType == null && sector == null && industry == null
+
     fun hasPreferredFinancialSource(): Boolean =
         financialDataSource?.contains("FMP") == true ||
             financialDataSource?.contains("SEC EDGAR") == true
@@ -1044,6 +1095,9 @@ private fun YahooQuoteSummaryResult.toDetails(symbol: String): StockDetails {
     return StockDetails(
         symbol = symbol,
         financialDataSource = "Yahoo",
+        assetType = if (assetProfile?.sector.normalizeMetadataText() != null) "Stock" else null,
+        sector = assetProfile?.sector.normalizeSectorName(),
+        industry = assetProfile?.industry.normalizeMetadataText(),
         nextEarningsEpochSeconds = cal?.earningsDate?.firstOrNull()?.raw,
         nextEarningsIsEstimate = cal?.isEarningsDateEstimate,
         nextEarningsQuarterLabel = chart?.let {
@@ -1090,6 +1144,9 @@ private fun AlphaCompanyOverview.toDetails(symbol: String): StockDetails =
     StockDetails(
         symbol = this.symbol?.takeIf { it.isNotBlank() } ?: symbol,
         financialDataSource = "Alpha Vantage",
+        assetType = assetType.normalizeAssetType() ?: sector.assetTypeFromSector(),
+        sector = sector.normalizeSectorName(),
+        industry = industry.normalizeMetadataText(),
         totalRevenue = revenueTtm.toFiniteDoubleOrNull(),
         revenueGrowthPct = quarterlyRevenueGrowthYoY.toRatioPercentOrNull(),
         epsGrowthPct = quarterlyEarningsGrowthYoY.toRatioPercentOrNull(),
@@ -1103,6 +1160,14 @@ private fun AlphaCompanyOverview.toDetails(symbol: String): StockDetails =
         fiftyTwoWeekHigh = high52w.toFiniteDoubleOrNull(),
         fiftyTwoWeekLow = low52w.toFiniteDoubleOrNull(),
         twoHundredDayAverage = ma200.toFiniteDoubleOrNull()
+    )
+
+private fun FmpProfile.toDetails(symbol: String): StockDetails =
+    StockDetails(
+        symbol = this.symbol?.takeIf { it.isNotBlank() } ?: symbol,
+        assetType = assetTypeLabel(),
+        sector = sector.normalizeSectorName(),
+        industry = industry.normalizeMetadataText()
     )
 
 private fun FmpIncomeStatement.periodLabel(): String? =
@@ -1141,6 +1206,57 @@ private fun FmpCashFlowStatement.periodLabel(): String? =
         !fiscalYear.isNullOrBlank() -> fiscalYear
         else -> null
     }
+
+private fun FmpProfile?.assetTypeLabel(): String? {
+    if (this == null) return null
+    if (isEtf == true) return "ETF"
+    val sectorText = sector.normalizeMetadataText()
+    val industryText = industry.normalizeMetadataText()
+    if (sectorText?.contains("ETF", ignoreCase = true) == true) return "ETF"
+    if (industryText?.contains("ETF", ignoreCase = true) == true) return "ETF"
+    if (sectorText != null || industryText != null) return "Stock"
+    return null
+}
+
+private fun String?.assetTypeFromSector(): String? =
+    when {
+        normalizeMetadataText()?.contains("ETF", ignoreCase = true) == true -> "ETF"
+        normalizeMetadataText() != null -> "Stock"
+        else -> null
+    }
+
+private fun String?.normalizeAssetType(): String? {
+    val text = normalizeMetadataText() ?: return null
+    val lower = text.lowercase(Locale.US)
+    return when {
+        "etf" in lower || "exchange traded" in lower -> "ETF"
+        "fund" in lower && "closed" !in lower -> "ETF"
+        "stock" in lower || "equity" in lower || "common" in lower -> "Stock"
+        "index" in lower -> "Index"
+        else -> text
+    }
+}
+
+private fun String?.normalizeSectorName(): String? =
+    normalizeMetadataText()?.let { text ->
+        text.split(" ", "-", "/")
+            .joinToString(" ") { word ->
+                if (word.length <= 3 && word.all { it.isUpperCase() }) {
+                    word
+                } else {
+                    word.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) }
+                }
+            }
+    }
+
+private fun String?.normalizeMetadataText(): String? =
+    this
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.takeUnless { it.equals("none", ignoreCase = true) }
+        ?.takeUnless { it.equals("null", ignoreCase = true) }
+        ?.takeUnless { it.equals("n/a", ignoreCase = true) }
+        ?.takeUnless { it == "--" || it == "-" }
 
 private fun percentChange(current: Double?, previous: Double?): Double? {
     if (current == null || previous == null || previous == 0.0) return null

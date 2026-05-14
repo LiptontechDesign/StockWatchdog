@@ -5,6 +5,7 @@ import com.stockwatchdog.app.data.api.models.FmpAnalystRecommendation
 import com.stockwatchdog.app.data.api.models.FmpCashFlowStatement
 import com.stockwatchdog.app.data.api.models.FmpEarningsEvent
 import com.stockwatchdog.app.data.api.models.FmpIncomeStatement
+import com.stockwatchdog.app.data.api.models.FmpProfile
 import com.stockwatchdog.app.data.api.models.FmpQuote
 import retrofit2.http.GET
 import retrofit2.http.Path
@@ -48,6 +49,12 @@ interface FmpApi {
         @Query("symbol") symbol: String,
         @Query("apikey") apiKey: String
     ): List<FmpQuote>
+
+    @GET("profile")
+    suspend fun profile(
+        @Query("symbol") symbol: String,
+        @Query("apikey") apiKey: String
+    ): List<FmpProfile>
 
     @GET("/api/v3/analyst-stock-recommendations/{symbol}")
     suspend fun analystRecommendations(
