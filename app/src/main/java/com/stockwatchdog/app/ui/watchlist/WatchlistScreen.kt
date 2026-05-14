@@ -1,6 +1,7 @@
 package com.stockwatchdog.app.ui.watchlist
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,8 +15,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -38,6 +41,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -114,10 +118,17 @@ fun WatchlistScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text("Watchlist", fontWeight = FontWeight.SemiBold)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "Watchlist",
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
                         state.marketSession?.let {
-                            MarketSessionSubtitle(it)
+                            MarketSessionPill(it)
                         } ?: state.marketSummaryText?.let {
                             Text(
                                 it,
@@ -213,43 +224,54 @@ fun WatchlistScreen(
 }
 
 @Composable
-private fun MarketSessionSubtitle(summary: MarketSessionSummary) {
+private fun MarketSessionPill(summary: MarketSessionSummary) {
     val statusColor = if (summary.isOpen) {
         MaterialTheme.colorScheme.primary
     } else {
         MaterialTheme.colorScheme.error
     }
-    val timeColor = MaterialTheme.colorScheme.secondary
-    Text(
-        text = buildAnnotatedString {
-            withStyle(
-                SpanStyle(
-                    color = statusColor,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            ) {
-                append(summary.statusLabel)
-            }
-            append(" - ${summary.actionLabel} in ")
-            withStyle(
-                SpanStyle(
-                    color = timeColor,
-                    fontWeight = FontWeight.Bold
-                )
-            ) {
-                append(summary.duration)
-            }
-            append(" - ")
-            withStyle(SpanStyle(color = timeColor, fontWeight = FontWeight.SemiBold)) {
-                append(summary.nairobiTime)
-            }
-            append(" Nairobi")
-        },
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis
-    )
+    val statusLabel = if (summary.isOpen) "Open" else "Closed"
+    Surface(
+        modifier = Modifier
+            .heightIn(min = 34.dp)
+            .widthIn(max = 218.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f),
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(statusColor)
+            )
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold)) {
+                        append(statusLabel)
+                    }
+                    append(" · ${summary.actionLabel} ")
+                    withStyle(
+                        SpanStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold
+                        )
+                    ) {
+                        append(summary.duration)
+                    }
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }
 
 @Composable
