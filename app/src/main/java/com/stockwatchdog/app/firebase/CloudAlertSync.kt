@@ -23,8 +23,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
- * Mirrors the phone's alert configuration to Firestore so Firebase Cloud
- * Functions can evaluate alerts and send FCM even when the app is closed.
+ * Mirrors the phone's alert configuration to Firestore so the free GitHub
+ * Actions alert runner can evaluate alerts and send FCM when the app is closed.
  *
  * Local Room remains the source of truth for the UI. Firestore is the cloud
  * execution copy for closed-app notifications.

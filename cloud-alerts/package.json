@@ -1,0 +1,16 @@
+{
+  "name": "stockwatchdog-cloud-alerts",
+  "description": "Free GitHub Actions alert runner for Stock Watchdog.",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "check": "node --check check-alerts.js",
+    "run": "node check-alerts.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}

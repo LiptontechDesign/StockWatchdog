@@ -1,39 +1,54 @@
-const { onSchedule } = require("firebase-functions/v2/scheduler");
-const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
-admin.initializeApp();
-
-const db = admin.firestore();
 const ALERT_USERS = "alertUsers";
 const NAIROBI = "Africa/Nairobi";
 const NEW_YORK = "America/New_York";
+const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "stockwatchdog-41541";
+const DRY_RUN = process.argv.includes("--dry-run");
 
-exports.checkCloudAlerts = onSchedule(
-  {
-    schedule: "every 15 minutes",
-    timeZone: NAIROBI,
-    timeoutSeconds: 540,
-    memory: "512MiB",
-  },
-  async () => {
-    const users = await db.collection(ALERT_USERS).where("active", "==", true).get();
-    logger.info("Checking cloud alerts", { users: users.size });
+main().catch((error) => {
+  console.error("Cloud alert run failed", error);
+  process.exitCode = 1;
+});
 
-    for (const userDoc of users.docs) {
-      try {
-        await checkUser(userDoc);
-      } catch (error) {
-        logger.error("User alert check failed", {
-          uid: userDoc.id,
-          message: error && error.message,
-        });
-      }
+async function main() {
+  initializeFirebase();
+  const db = admin.firestore();
+  const users = await db.collection(ALERT_USERS).where("active", "==", true).get();
+  console.log(`Checking ${users.size} active cloud alert user(s)`);
+
+  for (const userDoc of users.docs) {
+    try {
+      await checkUser(db, userDoc);
+    } catch (error) {
+      console.error("User alert check failed", {
+        uid: userDoc.id,
+        message: error && error.message,
+      });
     }
   }
-);
+}
 
-async function checkUser(userDoc) {
+function initializeFirebase() {
+  if (admin.apps.length > 0) return;
+
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!raw) {
+    throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON GitHub secret.");
+  }
+
+  const serviceAccount = JSON.parse(raw);
+  if (serviceAccount.private_key) {
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+  }
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    projectId: PROJECT_ID,
+  });
+}
+
+async function checkUser(db, userDoc) {
   const user = userDoc.data();
   const token = String(user.fcmToken || "");
   if (!token || !user.notificationsEnabled || !user.firebasePushEnabled) return;
@@ -250,7 +265,10 @@ async function evaluateAlert({ userRef, alert, quote, details, settings, now }) 
     update.lastTriggeredAtMillis = now.getTime();
     if (alert.autoDisableAfterFire) update.serverDisabled = true;
   }
-  await runtimeRef.set(update, { merge: true });
+
+  if (!DRY_RUN) {
+    await runtimeRef.set(update, { merge: true });
+  }
 
   return { shouldNotify, message };
 }
@@ -277,13 +295,22 @@ async function checkAutomaticEarnings({ userRef, token, trackedSymbols, details,
     const message = dayBefore
       ? `${symbol} results tomorrow`
       : `${symbol} results release time`;
-    await runtimeRef.set({
-      symbol,
-      type: "EARNINGS_REMINDER",
-      key,
-      firedAtMillis: now.getTime(),
-    });
-    await logEvent(userRef, { id: null, symbol, type: "EARNINGS_REMINDER", threshold: key === "day-before" ? 1 : 0 }, { message }, null, now, suppress);
+    if (!DRY_RUN) {
+      await runtimeRef.set({
+        symbol,
+        type: "EARNINGS_REMINDER",
+        key,
+        firedAtMillis: now.getTime(),
+      });
+      await logEvent(
+        userRef,
+        { id: null, symbol, type: "EARNINGS_REMINDER", threshold: key === "day-before" ? 1 : 0 },
+        { message },
+        null,
+        now,
+        suppress
+      );
+    }
     if (!suppress) {
       await sendAlertMessage(token, {
         symbol,
@@ -299,6 +326,11 @@ async function checkAutomaticEarnings({ userRef, token, trackedSymbols, details,
 async function sendAlertMessage(token, payload) {
   if (!token) return;
   const body = String(payload.body || "Alert triggered");
+  if (DRY_RUN) {
+    console.log("Dry run notification", { symbol: payload.symbol, title: payload.title, body });
+    return;
+  }
+
   await admin.messaging().send({
     token,
     data: {
@@ -316,6 +348,7 @@ async function sendAlertMessage(token, payload) {
 }
 
 async function logEvent(userRef, alert, result, quote, now, suppressed) {
+  if (DRY_RUN) return;
   await userRef.collection("events").add({
     alertId: alert.id || null,
     symbol: normalizeSymbol(alert.symbol),
@@ -347,7 +380,7 @@ async function fetchQuote(symbol) {
       currency: meta.currency || null,
     };
   } catch (error) {
-    logger.warn("Quote fetch failed", { symbol, message: error.message });
+    console.warn("Quote fetch failed", { symbol, message: error.message });
     return null;
   }
 }
@@ -371,7 +404,7 @@ async function fetchDetails(symbol) {
       volumeSpikeRatio: volume && averageVolume ? volume / averageVolume : null,
     };
   } catch (error) {
-    logger.warn("Details fetch failed", { symbol, message: error.message });
+    console.warn("Details fetch failed", { symbol, message: error.message });
     return null;
   }
 }
@@ -379,8 +412,8 @@ async function fetchDetails(symbol) {
 async function fetchJson(url) {
   const response = await fetch(url, {
     headers: {
-      "Accept": "application/json",
-      "User-Agent": "StockWatchdog/1.0 FirebaseCloudAlerts",
+      Accept: "application/json",
+      "User-Agent": "StockWatchdog/1.0 GitHubActionsFreeAlerts",
     },
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
