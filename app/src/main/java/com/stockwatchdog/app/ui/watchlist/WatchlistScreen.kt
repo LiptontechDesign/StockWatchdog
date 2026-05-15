@@ -53,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -75,6 +76,9 @@ import com.stockwatchdog.app.ui.components.changeColor
 import com.stockwatchdog.app.ui.components.formatPrice
 import com.stockwatchdog.app.ui.components.formatSignedChange
 import com.stockwatchdog.app.ui.components.formatSignedPercent
+
+private val MarketOpenAccent = Color(0xFF22C55E)
+private val MarketClosedAccent = Color(0xFFEF4444)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -226,9 +230,9 @@ fun WatchlistScreen(
 @Composable
 private fun MarketSessionPill(summary: MarketSessionSummary) {
     val statusColor = if (summary.isOpen) {
-        MaterialTheme.colorScheme.primary
+        MarketOpenAccent
     } else {
-        MaterialTheme.colorScheme.error
+        MarketClosedAccent
     }
     val statusLabel = if (summary.isOpen) "Open" else "Closed"
     Surface(
