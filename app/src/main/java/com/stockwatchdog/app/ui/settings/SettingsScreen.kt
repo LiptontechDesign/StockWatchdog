@@ -3,6 +3,7 @@ package com.stockwatchdog.app.ui.settings
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -65,6 +66,7 @@ fun SettingsScreen(container: AppContainer) {
     )
     val s by vm.state.collectAsStateWithLifecycle()
     val phoneNotificationsAllowed = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+    val batteryUnrestricted = isIgnoringBatteryOptimizations(ctx)
     var editingTwelve by rememberSaveable { mutableStateOf(false) }
     var editingAlpha by rememberSaveable { mutableStateOf(false) }
     var editingFinnhub by rememberSaveable { mutableStateOf(false) }
@@ -369,6 +371,12 @@ fun SettingsScreen(container: AppContainer) {
                 onTest = { vm.sendTestNotification() },
                 onOpenPhoneSettings = { openNotificationSettings(ctx) }
             )
+            Spacer(Modifier.height(12.dp))
+            BatteryBackgroundSetting(
+                unrestricted = batteryUnrestricted,
+                onAllow = { openBatteryOptimizationRequest(ctx) },
+                onOpenSettings = { openBatteryOptimizationSettings(ctx) }
+            )
 
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
@@ -418,6 +426,40 @@ fun SettingsScreen(container: AppContainer) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
+private fun BatteryBackgroundSetting(
+    unrestricted: Boolean,
+    onAllow: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("Closed-app alert reliability")
+        Text(
+            if (unrestricted) {
+                "Battery optimization is off for Stock Watchdog."
+            } else {
+                "Android may delay local alert checks while the app is closed. Allow background alerts for stronger reliability."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (unrestricted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Button(onClick = onAllow, enabled = !unrestricted) {
+                Text(if (unrestricted) "Allowed" else "Allow background alerts")
+            }
+            TextButton(onClick = onOpenSettings) {
+                Text("Battery settings")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun FirebasePushSetting(
     settings: UserSettings,
     phoneNotificationsAllowed: Boolean,
@@ -446,7 +488,7 @@ private fun FirebasePushSetting(
                         !phoneNotificationsAllowed -> "Phone notification permission is off"
                         settings.firebaseMessagingToken.isBlank() -> "Connecting to Firebase"
                         !settings.firebaseMessagingTopicsReady -> "Token ready, topic subscription pending"
-                        else -> "Ready for closed-app push messages"
+                        else -> "Ready to receive Firebase messages"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -471,6 +513,12 @@ private fun FirebasePushSetting(
                     append(settings.firebaseMessagingLastError)
                 }
             },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Price alerts still use local background checks unless a backend sends Firebase trigger messages.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -635,6 +683,38 @@ private fun openNotificationSettings(context: Context) {
 
     runCatching {
         context.startActivity(appSettings)
+    }.onFailure {
+        context.startActivity(fallback)
+    }
+}
+
+private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+    val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    return pm.isIgnoringBatteryOptimizations(context.packageName)
+}
+
+private fun openBatteryOptimizationRequest(context: Context) {
+    val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+        .setData(Uri.parse("package:${context.packageName}"))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    runCatching {
+        context.startActivity(request)
+    }.onFailure {
+        openBatteryOptimizationSettings(context)
+    }
+}
+
+private fun openBatteryOptimizationSettings(context: Context) {
+    val settings = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+        .setData(Uri.parse("package:${context.packageName}"))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    runCatching {
+        context.startActivity(settings)
     }.onFailure {
         context.startActivity(fallback)
     }

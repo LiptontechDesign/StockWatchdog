@@ -35,16 +35,12 @@ class SettingsViewModel(
 
     fun setInterval(minutes: Int) = viewModelScope.launch {
         repo.setIntervalMinutes(minutes)
-        AlertWorkScheduler.schedule(appContext, minutes)
+        AlertWorkScheduler.scheduleFromSettings(appContext)
     }
 
     fun setNotificationsEnabled(enabled: Boolean) = viewModelScope.launch {
         repo.setNotificationsEnabled(enabled)
-        if (enabled) {
-            AlertWorkScheduler.schedule(appContext, state.value.intervalMinutes)
-        } else {
-            AlertWorkScheduler.cancel(appContext)
-        }
+        AlertWorkScheduler.scheduleFromSettings(appContext)
     }
 
     fun setTheme(mode: ThemeMode) = viewModelScope.launch { repo.setThemeMode(mode) }

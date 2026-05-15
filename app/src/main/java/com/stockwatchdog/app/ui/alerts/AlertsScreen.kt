@@ -115,7 +115,8 @@ fun AlertsScreen(
                     alertDao = container.database.alertDao(),
                     eventDao = container.database.alertEventDao(),
                     priceCacheDao = container.database.priceCacheDao(),
-                    marketDataRepository = container.marketDataRepository
+                    marketDataRepository = container.marketDataRepository,
+                    appContext = ctx.applicationContext
                 )
             }
         }

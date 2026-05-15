@@ -1,6 +1,7 @@
 package com.stockwatchdog.app.work
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.stockwatchdog.app.StockWatchdogApp
@@ -35,7 +36,13 @@ class AlertCheckWorker(
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result =
+        runCatching { runAlertCheck() }.getOrElse { error ->
+            Log.w(TAG, "Alert check failed: ${error.message}", error)
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
+        }
+
+    private suspend fun runAlertCheck(): Result {
         val app = applicationContext as? StockWatchdogApp ?: return Result.success()
         val container = app.container
         val settings = container.settingsRepository.settings.first()
@@ -165,6 +172,8 @@ class AlertCheckWorker(
         return Result.success()
     }
 }
+
+private const val TAG = "AlertCheckWorker"
 
 private fun AlertEntity.isActiveAt(nowMillis: Long): Boolean {
     val until = snoozedUntilMillis ?: return enabled

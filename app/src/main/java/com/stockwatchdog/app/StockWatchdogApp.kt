@@ -9,7 +9,6 @@ import com.stockwatchdog.app.work.AlertWorkScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class StockWatchdogApp : Application(), Configuration.Provider {
@@ -27,8 +26,7 @@ class StockWatchdogApp : Application(), Configuration.Provider {
 
         // Apply the user's configured monitoring interval on startup.
         appScope.launch {
-            val settings = container.settingsRepository.settings.first()
-            AlertWorkScheduler.schedule(applicationContext, settings.intervalMinutes)
+            AlertWorkScheduler.scheduleFromSettings(applicationContext)
         }
     }
 
