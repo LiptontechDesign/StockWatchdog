@@ -161,7 +161,6 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[Keys.FIREBASE_MESSAGING_TOKEN] = token
             it[Keys.FIREBASE_MESSAGING_TOKEN_UPDATED] = updatedAtMillis
-            it[Keys.FIREBASE_MESSAGING_LAST_ERROR] = ""
         }
 
     suspend fun setFirebaseMessagingTopicsReady(ready: Boolean, error: String = "") =

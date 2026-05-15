@@ -1,16 +1,7 @@
 package com.stockwatchdog.app.work
 
 import android.content.Context
-import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import com.stockwatchdog.app.data.prefs.SettingsRepository
-import kotlinx.coroutines.flow.first
-import java.util.concurrent.TimeUnit
 
 object AlertWorkScheduler {
 
@@ -19,57 +10,30 @@ object AlertWorkScheduler {
     const val DEFAULT_INTERVAL_MINUTES = 30
 
     /**
-     * Schedules periodic alert checks. Android enforces a 15-minute minimum
-     * interval for PeriodicWorkRequest; we respect that and also provide
-     * 30 and 60 minute options from Settings.
+     * Closed-app alerts now come from Firebase Cloud Messaging. Keep this
+     * method as a compatibility cleanup hook for old installs that may still
+     * have WorkManager jobs registered from earlier builds.
      */
-    fun schedule(context: Context, intervalMinutes: Int) {
-        val safeMinutes = intervalMinutes.coerceAtLeast(15).toLong()
-
-        val request = PeriodicWorkRequestBuilder<AlertCheckWorker>(
-            safeMinutes, TimeUnit.MINUTES
-        )
-            .setConstraints(networkConstraints())
-            .setInitialDelay(safeMinutes, TimeUnit.MINUTES)
-            .build()
-
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            WORK_NAME,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request
-        )
-
-        runNow(context)
+    fun schedule(context: Context, @Suppress("UNUSED_PARAMETER") intervalMinutes: Int) {
+        cancel(context)
     }
 
     suspend fun scheduleFromSettings(context: Context) {
-        val settings = SettingsRepository(context.applicationContext).settings.first()
-        if (settings.notificationsEnabled) {
-            schedule(context, settings.intervalMinutes)
-        } else {
-            cancel(context)
-        }
+        // Closed-app alerts are Firebase cloud pushes now. Always cancel old
+        // local polling work so Android background limits do not decide alerts.
+        cancel(context)
     }
 
     fun runNow(context: Context) {
-        val immediateRequest = OneTimeWorkRequestBuilder<AlertCheckWorker>()
-            .setConstraints(networkConstraints())
-            .build()
-
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            IMMEDIATE_WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
-            immediateRequest
-        )
+        cancel(context)
     }
 
     fun cancel(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
-        WorkManager.getInstance(context).cancelUniqueWork(IMMEDIATE_WORK_NAME)
+        val workManager = WorkManager.getInstance(context)
+        workManager.cancelUniqueWork(WORK_NAME)
+        workManager.cancelUniqueWork(IMMEDIATE_WORK_NAME)
+        workManager.cancelAllWorkByTag(AlertCheckWorker::class.java.name)
+        workManager.cancelAllWork()
+        workManager.pruneWork()
     }
-
-    private fun networkConstraints(): Constraints =
-        Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
 }

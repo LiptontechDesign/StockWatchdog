@@ -1,6 +1,5 @@
 package com.stockwatchdog.app.ui.alerts
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stockwatchdog.app.data.api.MarketDataRepository
@@ -13,7 +12,6 @@ import com.stockwatchdog.app.data.db.entities.AlertType
 import com.stockwatchdog.app.domain.DataResult
 import com.stockwatchdog.app.domain.Quote
 import com.stockwatchdog.app.domain.SymbolMatch
-import com.stockwatchdog.app.work.AlertWorkScheduler
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,8 +68,7 @@ class AlertsViewModel(
     private val alertDao: AlertDao,
     private val eventDao: AlertEventDao,
     private val priceCacheDao: PriceCacheDao,
-    private val marketDataRepository: MarketDataRepository,
-    private val appContext: Context
+    private val marketDataRepository: MarketDataRepository
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(AlertsUiState())
@@ -121,7 +118,6 @@ class AlertsViewModel(
     fun toggle(id: Long, enabled: Boolean) =
         viewModelScope.launch {
             alertDao.setEnabled(id, enabled)
-            if (enabled) AlertWorkScheduler.runNow(appContext)
         }
 
     fun confirmDelete(id: Long) = _ui.update { it.copy(confirmDeleteId = id) }
@@ -140,7 +136,6 @@ class AlertsViewModel(
         viewModelScope.launch {
             alertDao.insert(entity)
             _ui.update { it.copy(undoDeleteEntity = null) }
-            if (entity.enabled) AlertWorkScheduler.runNow(appContext)
         }
     }
 
@@ -159,7 +154,6 @@ class AlertsViewModel(
         viewModelScope.launch {
             val entity = alerts.value.firstOrNull { it.id == id } ?: return@launch
             alertDao.update(entity.copy(snoozedUntilMillis = null))
-            if (entity.enabled) AlertWorkScheduler.runNow(appContext)
         }
     }
 
@@ -273,7 +267,6 @@ class AlertsViewModel(
                 )
             }
             _ui.update { it.copy(dialogOpen = false, dialogEditing = null) }
-            AlertWorkScheduler.runNow(appContext)
         }
     }
 

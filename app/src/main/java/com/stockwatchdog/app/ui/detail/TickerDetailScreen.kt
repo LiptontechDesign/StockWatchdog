@@ -66,7 +66,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -103,7 +102,6 @@ fun TickerDetailScreen(
     initialTab: Int = 0,
     onBack: () -> Unit
 ) {
-    val ctx = LocalContext.current
     val vm: TickerDetailViewModel = viewModel(
         key = "detail-$symbol",
         factory = viewModelFactory {
@@ -115,8 +113,7 @@ fun TickerDetailScreen(
                     watchlistDao = container.database.watchlistDao(),
                     alertDao = container.database.alertDao(),
                     positionLotDao = container.database.positionLotDao(),
-                    settingsRepository = container.settingsRepository,
-                    appContext = ctx.applicationContext
+                    settingsRepository = container.settingsRepository
                 )
             }
         }

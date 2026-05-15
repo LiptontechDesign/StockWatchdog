@@ -22,6 +22,7 @@ class StockWatchdogApp : Application(), Configuration.Provider {
         super.onCreate()
         FirebaseServices.configure(this)
         container = AppContainer(this)
+        FirebaseServices.startCloudAlertSync(this, container)
         NotificationHelper.ensureChannel(this)
 
         // Apply the user's configured monitoring interval on startup.

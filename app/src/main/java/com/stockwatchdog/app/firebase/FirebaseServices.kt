@@ -10,6 +10,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 import com.stockwatchdog.app.data.prefs.SettingsRepository
+import com.stockwatchdog.app.di.AppContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,7 @@ object FirebaseServices {
     private const val TAG = "FirebaseServices"
     private const val REMOTE_CONFIG_FETCH_SECONDS = 12L * 60L * 60L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var cloudSyncContainer: AppContainer? = null
 
     fun configure(context: Context) {
         runCatching {
@@ -42,6 +44,15 @@ object FirebaseServices {
             refreshMessaging(context)
         }.onFailure {
             Log.w(TAG, "Firebase startup skipped: ${it.message}")
+        }
+    }
+
+    fun startCloudAlertSync(context: Context, container: AppContainer) {
+        cloudSyncContainer = container
+        runCatching {
+            CloudAlertSync.start(context, container)
+        }.onFailure {
+            Log.w(TAG, "Cloud alert sync startup skipped: ${it.message}")
         }
     }
 
@@ -97,6 +108,9 @@ object FirebaseServices {
             }
 
         subscribeToTopics(messaging, repo, crashlytics)
+        cloudSyncContainer?.let { container ->
+            CloudAlertSync.start(appContext, container)
+        }
     }
 
     private fun subscribeToTopics(
@@ -114,7 +128,6 @@ object FirebaseServices {
                     remaining -= 1
                     if (remaining == 0 && !failed) {
                         crashlytics.setCustomKey("fcm_topics_ready", true)
-                        scope.launch { repo.setFirebaseMessagingTopicsReady(true) }
                     }
                 }
                 .addOnFailureListener {

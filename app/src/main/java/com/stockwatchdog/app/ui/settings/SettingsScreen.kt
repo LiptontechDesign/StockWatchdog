@@ -1,10 +1,9 @@
 package com.stockwatchdog.app.ui.settings
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.PowerManager
-import android.provider.Settings
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -41,6 +40,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -58,15 +58,38 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(container: AppContainer) {
-    val ctx = LocalContext.current.applicationContext
+    val localContext = LocalContext.current
+    val ctx = localContext.applicationContext
     val vm: SettingsViewModel = viewModel(
         factory = viewModelFactory {
             initializer { SettingsViewModel(container.settingsRepository, ctx) }
         }
     )
     val s by vm.state.collectAsStateWithLifecycle()
-    val phoneNotificationsAllowed = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
-    val batteryUnrestricted = isIgnoringBatteryOptimizations(ctx)
+    val phoneNotificationsAllowed =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            (
+                NotificationManagerCompat.from(ctx).areNotificationsEnabled() &&
+                    ContextCompat.checkSelfPermission(
+                        ctx,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                )
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) vm.enableCloudNotifications()
+    }
+    val allowCloudAlerts: () -> Unit = {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !phoneNotificationsAllowed
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            vm.enableCloudNotifications()
+        }
+    }
     var editingTwelve by rememberSaveable { mutableStateOf(false) }
     var editingAlpha by rememberSaveable { mutableStateOf(false) }
     var editingFinnhub by rememberSaveable { mutableStateOf(false) }
@@ -255,44 +278,13 @@ fun SettingsScreen(container: AppContainer) {
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
-            SectionHeader("Monitoring interval")
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                listOf(15, 30, 60).forEach { m ->
-                    FilterChip(
-                        selected = s.intervalMinutes == m,
-                        onClick = { vm.setInterval(m) },
-                        label = { Text("$m min") }
-                    )
-                }
-            }
-            Text(
-                "Android enforces a 15-minute minimum for periodic background work. " +
-                    "Longer intervals save more battery.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp)
-            )
-
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
             SectionHeader("Notifications")
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("Enable price alert notifications")
-                Switch(
-                    checked = s.notificationsEnabled,
-                    onCheckedChange = { vm.setNotificationsEnabled(it) }
-                )
-            }
-            Spacer(Modifier.height(8.dp))
+            CloudNotificationSetting(
+                settings = s,
+                phoneNotificationsAllowed = phoneNotificationsAllowed,
+                onPrimaryAction = allowCloudAlerts
+            )
+            Spacer(Modifier.height(12.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -362,22 +354,6 @@ fun SettingsScreen(container: AppContainer) {
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            FirebasePushSetting(
-                settings = s,
-                phoneNotificationsAllowed = phoneNotificationsAllowed,
-                onEnabledChange = { vm.setFirebasePushEnabled(it) },
-                onRefresh = { vm.refreshFirebasePush() },
-                onTest = { vm.sendTestNotification() },
-                onOpenPhoneSettings = { openNotificationSettings(ctx) }
-            )
-            Spacer(Modifier.height(12.dp))
-            BatteryBackgroundSetting(
-                unrestricted = batteryUnrestricted,
-                onAllow = { openBatteryOptimizationRequest(ctx) },
-                onOpenSettings = { openBatteryOptimizationSettings(ctx) }
-            )
-
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
@@ -405,20 +381,6 @@ fun SettingsScreen(container: AppContainer) {
                 }
             }
 
-            Spacer(Modifier.height(20.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            SectionHeader("Samsung battery tip")
-            Text(
-                "Samsung's power-saving features can pause background work. For reliable " +
-                    "alerts:\n\n" +
-                    "• Settings → Battery → Background usage limits → Never sleeping apps → add Stock Watchdog.\n" +
-                    "• Settings → Apps → Stock Watchdog → Battery → Unrestricted.\n" +
-                    "• Keep \"Allow background activity\" turned on.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -426,47 +388,10 @@ fun SettingsScreen(container: AppContainer) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BatteryBackgroundSetting(
-    unrestricted: Boolean,
-    onAllow: () -> Unit,
-    onOpenSettings: () -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text("Closed-app alert reliability")
-        Text(
-            if (unrestricted) {
-                "Battery optimization is off for Stock Watchdog."
-            } else {
-                "Android may delay local alert checks while the app is closed. Allow background alerts for stronger reliability."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = if (unrestricted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(8.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Button(onClick = onAllow, enabled = !unrestricted) {
-                Text(if (unrestricted) "Allowed" else "Allow background alerts")
-            }
-            TextButton(onClick = onOpenSettings) {
-                Text("Battery settings")
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun FirebasePushSetting(
+private fun CloudNotificationSetting(
     settings: UserSettings,
     phoneNotificationsAllowed: Boolean,
-    onEnabledChange: (Boolean) -> Unit,
-    onRefresh: () -> Unit,
-    onTest: () -> Unit,
-    onOpenPhoneSettings: () -> Unit
+    onPrimaryAction: () -> Unit
 ) {
     val ready = settings.notificationsEnabled &&
         settings.firebasePushEnabled &&
@@ -475,36 +400,24 @@ private fun FirebasePushSetting(
         settings.firebaseMessagingTopicsReady
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Firebase cloud push")
-                Text(
-                    when {
-                        !settings.notificationsEnabled -> "App alert switch is off"
-                        !settings.firebasePushEnabled -> "Cloud push is off"
-                        !phoneNotificationsAllowed -> "Phone notification permission is off"
-                        settings.firebaseMessagingToken.isBlank() -> "Connecting to Firebase"
-                        !settings.firebaseMessagingTopicsReady -> "Token ready, topic subscription pending"
-                        else -> "Ready to receive Firebase messages"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(
-                checked = settings.firebasePushEnabled,
-                onCheckedChange = onEnabledChange
-            )
-        }
-        Spacer(Modifier.height(8.dp))
+        Text("Firebase cloud alerts")
+        Text(
+            when {
+                !phoneNotificationsAllowed -> "Phone notification permission is off."
+                !settings.notificationsEnabled || !settings.firebasePushEnabled -> "Tap once to allow closed-app alerts through Firebase."
+                settings.firebaseMessagingToken.isBlank() -> "Connecting this phone to Firebase."
+                !settings.firebaseMessagingTopicsReady -> "Firebase token is ready; cloud alert sync is finishing."
+                else -> "Ready for app-open and app-closed alert notifications."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(6.dp))
         Text(
             buildString {
                 append("Token: ")
                 append(settings.firebaseMessagingToken.takeLast(10).takeIf { it.isNotBlank() } ?: "--")
-                append(" | Topics: ")
+                append(" | Cloud sync: ")
                 append(if (settings.firebaseMessagingTopicsReady) "ready" else "pending")
                 append(" | Last push: ")
                 append(formatFirebaseTime(settings.firebaseLastMessageAtMillis))
@@ -516,26 +429,21 @@ private fun FirebasePushSetting(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "Price alerts still use local background checks unless a backend sends Firebase trigger messages.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
         Spacer(Modifier.height(8.dp))
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Button(onClick = onTest) {
-                Text("Test notification")
-            }
-            TextButton(onClick = onRefresh) {
-                Text("Refresh push")
-            }
-            TextButton(onClick = onOpenPhoneSettings) {
-                Text("Phone settings")
+            Button(onClick = onPrimaryAction) {
+                Text(
+                    when {
+                        !phoneNotificationsAllowed -> "Allow notifications"
+                        !settings.notificationsEnabled || !settings.firebasePushEnabled -> "Enable cloud alerts"
+                        ready -> "Refresh cloud alerts"
+                        else -> "Finish cloud setup"
+                    }
+                )
             }
         }
     }
@@ -671,51 +579,3 @@ private fun formatFirebaseTime(millis: Long): String =
             .atZone(MarketClock.KENYA)
             .format(FirebaseStatusTimeFormat) + " EAT"
     }
-
-private fun openNotificationSettings(context: Context) {
-    val appSettings = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-        .setData(Uri.parse("package:${context.packageName}"))
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    runCatching {
-        context.startActivity(appSettings)
-    }.onFailure {
-        context.startActivity(fallback)
-    }
-}
-
-private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
-    val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    return pm.isIgnoringBatteryOptimizations(context.packageName)
-}
-
-private fun openBatteryOptimizationRequest(context: Context) {
-    val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-        .setData(Uri.parse("package:${context.packageName}"))
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    runCatching {
-        context.startActivity(request)
-    }.onFailure {
-        openBatteryOptimizationSettings(context)
-    }
-}
-
-private fun openBatteryOptimizationSettings(context: Context) {
-    val settings = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-        .setData(Uri.parse("package:${context.packageName}"))
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    runCatching {
-        context.startActivity(settings)
-    }.onFailure {
-        context.startActivity(fallback)
-    }
-}

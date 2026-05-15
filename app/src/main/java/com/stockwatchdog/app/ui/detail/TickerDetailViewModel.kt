@@ -1,6 +1,5 @@
 package com.stockwatchdog.app.ui.detail
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stockwatchdog.app.data.api.MarketDataRepository
@@ -19,7 +18,6 @@ import com.stockwatchdog.app.domain.DataResult
 import com.stockwatchdog.app.domain.PositionCalculator
 import com.stockwatchdog.app.domain.PricePoint
 import com.stockwatchdog.app.domain.Quote
-import com.stockwatchdog.app.work.AlertWorkScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -72,8 +70,7 @@ class TickerDetailViewModel(
     private val watchlistDao: WatchlistDao,
     private val alertDao: AlertDao,
     private val positionLotDao: PositionLotDao,
-    private val settingsRepository: SettingsRepository,
-    private val appContext: Context
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(DetailUiState(symbol = symbol))
@@ -273,14 +270,12 @@ class TickerDetailViewModel(
                     newAlertMarketHoursOnly = null
                 )
             }
-            AlertWorkScheduler.runNow(appContext)
         }
     }
 
     fun toggleAlert(id: Long, enabled: Boolean) =
         viewModelScope.launch {
             alertDao.setEnabled(id, enabled)
-            if (enabled) AlertWorkScheduler.runNow(appContext)
         }
 
     fun confirmDeleteAlert(id: Long) = _ui.update { it.copy(alertDeleteConfirmId = id) }
@@ -316,7 +311,6 @@ class TickerDetailViewModel(
                     lastCrossingState = initialState
                 )
             )
-            AlertWorkScheduler.runNow(appContext)
         }
     }
 
@@ -344,7 +338,6 @@ class TickerDetailViewModel(
                     lastCrossingState = initialState
                 )
             )
-            AlertWorkScheduler.runNow(appContext)
         }
     }
 
