@@ -5,6 +5,10 @@ const NAIROBI = "Africa/Nairobi";
 const NEW_YORK = "America/New_York";
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "stockwatchdog-41541";
 const DRY_RUN = process.argv.includes("--dry-run");
+const FMP_API_KEY = process.env.FMP_API_KEY || "";
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || "";
+const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY || "";
+const ALPHA_VANTAGE_API_KEY = process.env.ALPHA_VANTAGE_API_KEY || "";
 
 main().catch((error) => {
   console.error("Cloud alert run failed", error);
@@ -363,50 +367,191 @@ async function logEvent(userRef, alert, result, quote, now, suppressed) {
 }
 
 async function fetchQuote(symbol) {
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
-    const json = await fetchJson(url);
-    const result = json && json.chart && json.chart.result && json.chart.result[0];
-    const meta = result && result.meta;
-    if (!meta) return null;
-    const price = Number(meta.regularMarketPrice);
-    const previous = Number(meta.previousClose || meta.chartPreviousClose);
-    if (!Number.isFinite(price) || price <= 0) return null;
-    return {
-      symbol,
-      price,
-      previousClose: Number.isFinite(previous) && previous > 0 ? previous : null,
-      percentChange: Number.isFinite(previous) && previous > 0 ? ((price - previous) / previous) * 100 : null,
-      currency: meta.currency || null,
-    };
-  } catch (error) {
-    console.warn("Quote fetch failed", { symbol, message: error.message });
-    return null;
+  const providers = [
+    ["finnhub", () => fetchFinnhubQuote(symbol)],
+    ["fmp", () => fetchFmpQuote(symbol)],
+    ["twelveData", () => fetchTwelveDataQuote(symbol)],
+    ["alphaVantage", () => fetchAlphaVantageQuote(symbol)],
+    ["yahoo", () => fetchYahooQuote(symbol)],
+  ];
+
+  for (const [provider, fetcher] of providers) {
+    try {
+      const quote = await fetcher();
+      if (isValidQuote(quote)) return quote;
+    } catch (error) {
+      console.warn("Quote fetch failed", { provider, symbol, message: error.message });
+    }
   }
+
+  return null;
 }
 
 async function fetchDetails(symbol) {
-  try {
-    const modules = "calendarEvents,financialData,summaryDetail,defaultKeyStatistics";
-    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
-    const json = await fetchJson(url);
-    const result = json && json.quoteSummary && json.quoteSummary.result && json.quoteSummary.result[0];
-    if (!result) return null;
-    const volume = raw(result.summaryDetail && result.summaryDetail.volume);
-    const averageVolume = raw(result.summaryDetail && result.summaryDetail.averageVolume);
-    return {
-      nextEarningsEpochSeconds: nextEarnings(result),
-      fiftyTwoWeekHigh: raw(result.summaryDetail && result.summaryDetail.fiftyTwoWeekHigh),
-      fiftyTwoWeekLow: raw(result.summaryDetail && result.summaryDetail.fiftyTwoWeekLow),
-      twoHundredDayAverage: raw(result.summaryDetail && result.summaryDetail.twoHundredDayAverage) ||
-        raw(result.defaultKeyStatistics && result.defaultKeyStatistics.twoHundredDayAverage),
-      analystTargetMean: raw(result.financialData && result.financialData.targetMeanPrice),
-      volumeSpikeRatio: volume && averageVolume ? volume / averageVolume : null,
-    };
-  } catch (error) {
-    console.warn("Details fetch failed", { symbol, message: error.message });
-    return null;
+  const providers = [
+    ["fmp", () => fetchFmpDetails(symbol)],
+    ["finnhub", () => fetchFinnhubDetails(symbol)],
+    ["alphaVantage", () => fetchAlphaVantageDetails(symbol)],
+    ["yahoo", () => fetchYahooDetails(symbol)],
+  ];
+  const merged = {};
+
+  for (const [provider, fetcher] of providers) {
+    try {
+      mergeDefined(merged, await fetcher());
+    } catch (error) {
+      console.warn("Details fetch failed", { provider, symbol, message: error.message });
+    }
   }
+
+  return Object.keys(merged).length ? merged : null;
+}
+
+async function fetchFinnhubQuote(symbol) {
+  if (!FINNHUB_API_KEY) return null;
+  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(FINNHUB_API_KEY)}`;
+  const json = await fetchJson(url);
+  const price = num(json && json.c);
+  const previous = num(json && json.pc);
+  return quoteFromParts({
+    symbol,
+    price,
+    previousClose: previous,
+    percentChange: num(json && json.dp),
+  });
+}
+
+async function fetchFmpQuote(symbol) {
+  if (!FMP_API_KEY) return null;
+  const url = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(FMP_API_KEY)}`;
+  const json = await fetchJson(url);
+  const row = Array.isArray(json) ? json[0] : json;
+  const price = num(row && (row.price ?? row.close));
+  const previous = num(row && (row.previousClose ?? row.prevClose));
+  return quoteFromParts({
+    symbol,
+    price,
+    previousClose: previous,
+    percentChange: num(row && (row.changesPercentage ?? row.percentChange ?? row.changePercentage)),
+    currency: row && row.currency,
+  });
+}
+
+async function fetchTwelveDataQuote(symbol) {
+  if (!TWELVE_DATA_API_KEY) return null;
+  const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(TWELVE_DATA_API_KEY)}`;
+  const json = await fetchJson(url);
+  if (json && json.status === "error") throw new Error(json.message || "Twelve Data error");
+  const price = num(json && (json.close ?? json.price));
+  const previous = num(json && json.previous_close);
+  return quoteFromParts({
+    symbol,
+    price,
+    previousClose: previous,
+    percentChange: num(json && json.percent_change),
+    currency: json && json.currency,
+  });
+}
+
+async function fetchAlphaVantageQuote(symbol) {
+  if (!ALPHA_VANTAGE_API_KEY) return null;
+  const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(ALPHA_VANTAGE_API_KEY)}`;
+  const json = await fetchJson(url);
+  if (json && (json.Note || json.Information)) throw new Error(json.Note || json.Information);
+  const quote = json && json["Global Quote"];
+  const price = num(quote && quote["05. price"]);
+  const previous = num(quote && quote["08. previous close"]);
+  const rawPct = quote && quote["10. change percent"];
+  return quoteFromParts({
+    symbol,
+    price,
+    previousClose: previous,
+    percentChange: typeof rawPct === "string" ? num(rawPct.replace("%", "")) : null,
+  });
+}
+
+async function fetchYahooQuote(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const json = await fetchJson(url);
+  const result = json && json.chart && json.chart.result && json.chart.result[0];
+  const meta = result && result.meta;
+  if (!meta) return null;
+  const price = num(meta.regularMarketPrice);
+  const previous = num(meta.previousClose || meta.chartPreviousClose);
+  return quoteFromParts({
+    symbol,
+    price,
+    previousClose: previous,
+    currency: meta.currency || null,
+  });
+}
+
+async function fetchFmpDetails(symbol) {
+  if (!FMP_API_KEY) return null;
+  const detail = {};
+  const quoteUrl = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(FMP_API_KEY)}`;
+  const quoteJson = await fetchJson(quoteUrl);
+  const row = Array.isArray(quoteJson) ? quoteJson[0] : quoteJson;
+  if (row) {
+    detail.fiftyTwoWeekHigh = num(row.yearHigh ?? row.high52Week);
+    detail.fiftyTwoWeekLow = num(row.yearLow ?? row.low52Week);
+    detail.twoHundredDayAverage = num(row.priceAvg200 ?? row.ma200);
+    detail.analystTargetMean = num(row.priceTargetAverage ?? row.targetMeanPrice);
+    const volume = num(row.volume);
+    const averageVolume = num(row.avgVolume ?? row.averageVolume);
+    if (volume && averageVolume) detail.volumeSpikeRatio = volume / averageVolume;
+  }
+
+  const earningsUrl = `https://financialmodelingprep.com/stable/earnings?symbol=${encodeURIComponent(symbol)}&limit=8&apikey=${encodeURIComponent(FMP_API_KEY)}`;
+  const earningsJson = await fetchJson(earningsUrl);
+  const next = nextFutureDate(Array.isArray(earningsJson) ? earningsJson.map((e) => e && e.date) : []);
+  if (next) detail.nextEarningsEpochSeconds = next;
+  return detail;
+}
+
+async function fetchFinnhubDetails(symbol) {
+  if (!FINNHUB_API_KEY) return null;
+  const today = isoDateInZone(new Date(), NEW_YORK);
+  const until = isoDateInZone(new Date(Date.now() + 180 * 86400000), NEW_YORK);
+  const url = `https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${until}&symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(FINNHUB_API_KEY)}`;
+  const json = await fetchJson(url);
+  const dates = Array.isArray(json && json.earningsCalendar)
+    ? json.earningsCalendar.map((e) => e && e.date)
+    : [];
+  const next = nextFutureDate(dates);
+  return next ? { nextEarningsEpochSeconds: next } : null;
+}
+
+async function fetchAlphaVantageDetails(symbol) {
+  if (!ALPHA_VANTAGE_API_KEY) return null;
+  const url = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(ALPHA_VANTAGE_API_KEY)}`;
+  const json = await fetchJson(url);
+  if (json && (json.Note || json.Information)) throw new Error(json.Note || json.Information);
+  return {
+    fiftyTwoWeekHigh: num(json && json["52WeekHigh"]),
+    fiftyTwoWeekLow: num(json && json["52WeekLow"]),
+    twoHundredDayAverage: num(json && json["200DayMovingAverage"]),
+    analystTargetMean: num(json && json.AnalystTargetPrice),
+  };
+}
+
+async function fetchYahooDetails(symbol) {
+  const modules = "calendarEvents,financialData,summaryDetail,defaultKeyStatistics";
+  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
+  const json = await fetchJson(url);
+  const result = json && json.quoteSummary && json.quoteSummary.result && json.quoteSummary.result[0];
+  if (!result) return null;
+  const volume = raw(result.summaryDetail && result.summaryDetail.volume);
+  const averageVolume = raw(result.summaryDetail && result.summaryDetail.averageVolume);
+  return {
+    nextEarningsEpochSeconds: nextEarnings(result),
+    fiftyTwoWeekHigh: raw(result.summaryDetail && result.summaryDetail.fiftyTwoWeekHigh),
+    fiftyTwoWeekLow: raw(result.summaryDetail && result.summaryDetail.fiftyTwoWeekLow),
+    twoHundredDayAverage: raw(result.summaryDetail && result.summaryDetail.twoHundredDayAverage) ||
+      raw(result.defaultKeyStatistics && result.defaultKeyStatistics.twoHundredDayAverage),
+    analystTargetMean: raw(result.financialData && result.financialData.targetMeanPrice),
+    volumeSpikeRatio: volume && averageVolume ? volume / averageVolume : null,
+  };
 }
 
 async function fetchJson(url) {
@@ -418,6 +563,52 @@ async function fetchJson(url) {
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
+}
+
+function quoteFromParts({ symbol, price, previousClose, percentChange, currency }) {
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const previous = Number.isFinite(previousClose) && previousClose > 0 ? previousClose : null;
+  const pct = Number.isFinite(percentChange)
+    ? percentChange
+    : previous
+      ? ((price - previous) / previous) * 100
+      : null;
+  return {
+    symbol,
+    price,
+    previousClose: previous,
+    percentChange: pct,
+    currency: currency || null,
+  };
+}
+
+function isValidQuote(quote) {
+  return quote && Number.isFinite(quote.price) && quote.price > 0;
+}
+
+function mergeDefined(target, source) {
+  if (!source) return target;
+  Object.entries(source).forEach(([key, value]) => {
+    if (value != null && value !== "" && target[key] == null) {
+      target[key] = value;
+    }
+  });
+  return target;
+}
+
+function nextFutureDate(dates) {
+  const now = Date.now();
+  return dates
+    .map((date) => parseDateEpochSeconds(date))
+    .filter((seconds) => seconds && seconds * 1000 >= now - 86400000)
+    .sort((a, b) => a - b)[0] || null;
+}
+
+function parseDateEpochSeconds(value) {
+  if (!value || typeof value !== "string") return null;
+  const dateOnly = value.slice(0, 10);
+  const millis = Date.parse(`${dateOnly}T12:00:00Z`);
+  return Number.isFinite(millis) ? Math.floor(millis / 1000) : null;
 }
 
 function nextEarnings(result) {
@@ -432,6 +623,12 @@ function raw(value) {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value.raw === "number") return Number.isFinite(value.raw) ? value.raw : null;
   return null;
+}
+
+function num(value) {
+  if (value == null || value === "" || value === "None" || value === "N/A" || value === "-") return null;
+  const n = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
 }
 
 function needsDetails(type) {
