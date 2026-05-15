@@ -9,6 +9,7 @@ const FMP_API_KEY = process.env.FMP_API_KEY || "";
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || "";
 const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY || "";
 const ALPHA_VANTAGE_API_KEY = process.env.ALPHA_VANTAGE_API_KEY || "";
+const SEND_TEST_NOTIFICATION = process.env.SEND_TEST_NOTIFICATION === "true";
 
 main().catch((error) => {
   console.error("Cloud alert run failed", error);
@@ -20,6 +21,24 @@ async function main() {
   const db = admin.firestore();
   const users = await db.collection(ALERT_USERS).where("active", "==", true).get();
   console.log(`Checking ${users.size} active cloud alert user(s)`);
+
+  if (SEND_TEST_NOTIFICATION) {
+    let sent = 0;
+    for (const userDoc of users.docs) {
+      const token = String((userDoc.data() || {}).fcmToken || "");
+      if (!token) continue;
+      await sendAlertMessage(token, {
+        symbol: "SETUP",
+        title: "Stock Watchdog ready",
+        body: "Cloud alerts are connected and can notify this device while the app is closed.",
+        route: "alerts",
+        type: "SETUP_TEST",
+      });
+      sent += 1;
+    }
+    console.log(`Sent ${sent} setup test notification(s)`);
+    return;
+  }
 
   for (const userDoc of users.docs) {
     try {

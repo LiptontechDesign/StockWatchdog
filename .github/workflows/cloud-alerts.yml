@@ -1,7 +1,12 @@
 name: Free Cloud Alerts
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      send_test:
+        description: "Send one setup test notification to active devices"
+        required: false
+        default: "false"
   schedule:
     # Covers normal US market hours across daylight-saving changes.
     - cron: "*/15 12-22 * * 1-5"
@@ -44,4 +49,5 @@ jobs:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          SEND_TEST_NOTIFICATION: ${{ inputs.send_test || 'false' }}
         run: node check-alerts.js
