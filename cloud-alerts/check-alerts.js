@@ -37,7 +37,7 @@ function initializeFirebase() {
     throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON GitHub secret.");
   }
 
-  const serviceAccount = JSON.parse(raw);
+  const serviceAccount = JSON.parse(raw.replace(/^\uFEFF/, "").trim());
   if (serviceAccount.private_key) {
     serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
   }
