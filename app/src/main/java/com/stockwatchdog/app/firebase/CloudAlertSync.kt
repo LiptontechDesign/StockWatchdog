@@ -44,6 +44,12 @@ object CloudAlertSync {
         val auth = FirebaseAuth.getInstance()
         val existing = auth.currentUser
         if (existing != null) {
+            scope.launch {
+                container.settingsRepository.setFirebaseMessagingTopicsReady(
+                    ready = false,
+                    error = "Firebase sign-in ready. Syncing alert rules to Firestore."
+                )
+            }
             startCollector(scope, appContext, container, existing.uid)
             return
         }
@@ -56,6 +62,12 @@ object CloudAlertSync {
                     return@addOnSuccessListener
                 }
                 FirebaseCrashlytics.getInstance().setCustomKey("firebase_auth_uid_ready", true)
+                scope.launch {
+                    container.settingsRepository.setFirebaseMessagingTopicsReady(
+                        ready = false,
+                        error = "Firebase sign-in complete. Syncing alert rules to Firestore."
+                    )
+                }
                 startCollector(scope, appContext, container, uid)
             }
             .addOnFailureListener { error ->

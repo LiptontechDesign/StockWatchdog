@@ -393,35 +393,77 @@ private fun CloudNotificationSetting(
     phoneNotificationsAllowed: Boolean,
     onPrimaryAction: () -> Unit
 ) {
+    val tokenReady = settings.firebaseMessagingToken.isNotBlank()
+    val cloudSyncReady = settings.firebaseMessagingTopicsReady
     val ready = settings.notificationsEnabled &&
         settings.firebasePushEnabled &&
         phoneNotificationsAllowed &&
-        settings.firebaseMessagingToken.isNotBlank() &&
-        settings.firebaseMessagingTopicsReady
+        tokenReady &&
+        cloudSyncReady
+    val statusIsProblem = settings.firebaseMessagingLastError.contains("needs", ignoreCase = true) ||
+        settings.firebaseMessagingLastError.contains("failed", ignoreCase = true) ||
+        settings.firebaseMessagingLastError.contains("unavailable", ignoreCase = true)
+    val statusColor = when {
+        ready -> MaterialTheme.colorScheme.primary
+        statusIsProblem -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val statusText = when {
+        ready -> "Configuration successful. Closed-app cloud alerts are ready."
+        !phoneNotificationsAllowed -> "Waiting for phone notification permission."
+        !settings.notificationsEnabled || !settings.firebasePushEnabled -> "Cloud alerts are off in the app."
+        !tokenReady -> "Connecting this phone to Firebase and requesting an FCM token."
+        !cloudSyncReady -> settings.firebaseMessagingLastError.ifBlank {
+            "Syncing your alert rules to Firestore for the free GitHub checker."
+        }
+        else -> "Checking cloud alert setup."
+    }
+    val buttonText = when {
+        !phoneNotificationsAllowed -> "Allow notifications"
+        !settings.notificationsEnabled || !settings.firebasePushEnabled -> "Enable cloud alerts"
+        ready -> "Refresh cloud alerts"
+        else -> "Finish cloud setup"
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text("Firebase cloud alerts")
         Text(
-            when {
-                !phoneNotificationsAllowed -> "Phone notification permission is off."
-                !settings.notificationsEnabled || !settings.firebasePushEnabled -> "Tap once to allow closed-app alerts through Firebase."
-                settings.firebaseMessagingToken.isBlank() -> "Connecting this phone to Firebase."
-                !settings.firebaseMessagingTopicsReady -> "Firebase token is ready; cloud alert sync is finishing."
-                else -> "Ready for app-open and app-closed alert notifications."
-            },
+            statusText,
             style = MaterialTheme.typography.bodySmall,
-            color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            color = statusColor
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(10.dp))
+        CloudSetupStep(
+            label = "Phone permission",
+            value = if (phoneNotificationsAllowed) "Allowed" else "Needs approval",
+            complete = phoneNotificationsAllowed
+        )
+        CloudSetupStep(
+            label = "App cloud alerts",
+            value = if (settings.notificationsEnabled && settings.firebasePushEnabled) "Enabled" else "Off",
+            complete = settings.notificationsEnabled && settings.firebasePushEnabled
+        )
+        CloudSetupStep(
+            label = "Firebase token",
+            value = if (tokenReady) "Saved (${settings.firebaseMessagingToken.takeLast(6)})" else "Connecting",
+            complete = tokenReady
+        )
+        CloudSetupStep(
+            label = "Alert rule sync",
+            value = if (cloudSyncReady) "Synced" else "Pending",
+            complete = cloudSyncReady
+        )
+        CloudSetupStep(
+            label = "Free checker",
+            value = if (ready) "GitHub Actions scheduled" else "Waits for sync",
+            complete = ready
+        )
+        Spacer(Modifier.height(8.dp))
         Text(
             buildString {
-                append("Token: ")
-                append(settings.firebaseMessagingToken.takeLast(10).takeIf { it.isNotBlank() } ?: "--")
-                append(" | Cloud sync: ")
-                append(if (settings.firebaseMessagingTopicsReady) "ready" else "pending")
-                append(" | Last push: ")
+                append("Last push: ")
                 append(formatFirebaseTime(settings.firebaseLastMessageAtMillis))
-                if (settings.firebaseMessagingLastError.isNotBlank()) {
+                if (!ready && settings.firebaseMessagingLastError.isNotBlank()) {
                     append("\n")
                     append(settings.firebaseMessagingLastError)
                 }
@@ -436,16 +478,33 @@ private fun CloudNotificationSetting(
             modifier = Modifier.fillMaxWidth()
         ) {
             Button(onClick = onPrimaryAction) {
-                Text(
-                    when {
-                        !phoneNotificationsAllowed -> "Allow notifications"
-                        !settings.notificationsEnabled || !settings.firebasePushEnabled -> "Enable cloud alerts"
-                        ready -> "Refresh cloud alerts"
-                        else -> "Finish cloud setup"
-                    }
-                )
+                Text(buttonText)
             }
         }
+    }
+}
+
+@Composable
+private fun CloudSetupStep(
+    label: String,
+    value: String,
+    complete: Boolean
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (complete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (complete) FontWeight.SemiBold else FontWeight.Normal
+        )
     }
 }
 

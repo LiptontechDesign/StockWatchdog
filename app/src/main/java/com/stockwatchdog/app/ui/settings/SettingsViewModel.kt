@@ -67,11 +67,19 @@ class SettingsViewModel(
     fun enableCloudNotifications() = viewModelScope.launch {
         repo.setNotificationsEnabled(true)
         repo.setFirebasePushEnabled(true)
+        repo.setFirebaseMessagingTopicsReady(
+            ready = false,
+            error = "Setup started: checking phone permission, Firebase token, and Firestore sync."
+        )
         AlertWorkScheduler.cancel(appContext)
         FirebaseServices.refreshMessaging(appContext)
     }
 
-    fun refreshFirebasePush() {
+    fun refreshFirebasePush() = viewModelScope.launch {
+        repo.setFirebaseMessagingTopicsReady(
+            ready = false,
+            error = "Refresh started: checking Firebase token and syncing alert rules."
+        )
         FirebaseServices.refreshMessaging(appContext)
     }
 }
